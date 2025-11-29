@@ -1,0 +1,14 @@
+fastapi==0.109.2
+uvicorn==0.27.1
+python-dotenv==1.0.1
+langchain==0.1.9
+langchain-google-genai==0.0.9
+langchain-community==0.0.24
+faiss-cpu==1.7.4
+pypdf==4.0.2
+duckduckgo-search==4.3.1
+ragas==0.1.1
+datasets==2.17.1
+google-search-results
+pydantic==2.6.1
+requests
