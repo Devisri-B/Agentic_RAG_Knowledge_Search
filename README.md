@@ -1,119 +1,72 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agentic RAG Knowledge Search</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        h1, h2, h3 {
-            color: #2c3e50;
-            margin-top: 1.5em;
-        }
-        h1 {
-            border-bottom: 2px solid #eaeaea;
-            padding-bottom: 0.5em;
-        }
-        code {
-            background-color: #f6f8fa;
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-            font-size: 85%;
-        }
-        pre {
-            background-color: #f6f8fa;
-            padding: 16px;
-            overflow: auto;
-            border-radius: 6px;
-            line-height: 1.45;
-        }
-        pre code {
-            background-color: transparent;
-            padding: 0;
-            font-size: 100%;
-        }
-        ul {
-            padding-left: 2em;
-        }
-        li {
-            margin-bottom: 0.5em;
-        }
-        a {
-            color: #0366d6;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-    </style>
-</head>
-<body>
+# Agentic RAG Knowledge Search
 
-    <h1>Agentic RAG Knowledge Search</h1>
+A production-ready AI Microservice that uses an Agentic Router to intelligently decide between retrieving answers from internal private documents (RAG) or searching the live web.
 
-    <p>A production-ready AI Microservice that uses an <strong>Agentic Router</strong> to intelligently decide between retrieving answers from internal private documents (RAG) or searching the live web.</p>
+Built with FastAPI, LangChain, Docker, and Google Gemini.
 
-    <p>Built with <strong>FastAPI</strong>, <strong>LangChain</strong>, <strong>Docker</strong>, and <strong>Google Gemini</strong>.</p>
+## Features
 
-    <h2> Features</h2>
-    <ul>
-        <li><strong>Agentic Routing</strong>: Uses an LLM to decide <em>where</em> to get information.</li>
-        <li><strong>Hybrid Tools</strong>:
-            <ul>
-                <li><code>lookup_internal_policy</code>: Searches local PDFs using FAISS + Embeddings.</li>
-                <li><code>search_web</code>: Searches DuckDuckGo for real-time info.</li>
-            </ul>
-        </li>
-        <li><strong>REST API</strong>: Fully documented API using FastAPI.</li>
-        <li><strong>Containerized</strong>: Docker support for easy deployment.</li>
-    </ul>
+- Agentic Routing: Uses an LLM to decide where to get information.
 
-    <h2> Project Structure</h2>
-    <ul>
-        <li><code>src/rag_engine.py</code>: Handles PDF ingestion and Vector Database (FAISS).</li>
-        <li><code>src/agent.py</code>: Defines the Agent, Tools, and LangChain logic.</li>
-        <li><code>src/main.py</code>: The FastAPI server entry point.</li>
-        <li><code>data/</code>: Place your PDF documents here.</li>
-    </ul>
+- Hybrid Tools:
 
-    <h2> Setup & Installation</h2>
+    - lookup_internal_policy: Searches local PDFs using FAISS + Embeddings.
+    
+    - search_web: Searches DuckDuckGo for real-time info.
 
-    <h3>1. Prerequisites</h3>
-    <ul>
-        <li>Get a <a href="https://aistudio.google.com/">Free Google Gemini API Key</a>.</li>
-        <li>Create a <code>.env</code> file in this directory:
-            <pre><code>GOOGLE_API_KEY=AIzaSyD...your_key_here...</code></pre>
-        </li>
-    </ul>
+- REST API: Fully documented API using FastAPI.
 
-    <h3>2. Add Data</h3>
-    <p>Place your PDF file (e.g., policy documents, course materials) into the <code>data/</code> folder and rename it to <code>policy.pdf</code> (or update <code>src/agent.py</code> to match your filename).</p>
+- Containerized: Docker support for easy deployment.
 
-    <h3>3. Run with Docker (Recommended)</h3>
-    <pre><code>docker build -t agentic-rag .
-docker run -p 8000:8000 --env-file .env agentic-rag</code></pre>
+## Project Structure
 
-    <h3>4. Run Locally</h3>
-    <pre><code>pip install -r requirements.txt
-python src/main.py</code></pre>
+- src/rag_engine.py: Handles PDF ingestion and Vector Database (FAISS).
 
-    <h2> API Usage</h2>
-    <p><strong>Endpoint:</strong> <code>POST /chat</code></p>
+- src/agent.py: Defines the Agent, Tools, and LangChain logic.
 
-    <pre><code>{
+- src/main.py: The FastAPI server entry point.
+
+- data/: Place your PDF documents here.
+
+## Setup & Installation
+
+1. Prerequisites
+
+- Get a Free Google Gemini API Key.
+
+- Create a .env file in this directory:
+
+```GOOGLE_API_KEY=AIzaSyD...your_key_here...```
+
+2. Add Data
+
+Place your PDF file (e.g., policy documents, course materials) into the data/ folder and rename it to policy.pdf (or update src/agent.py to match your filename).
+
+3. Run with Docker (Recommended)
+
+```docker build -t agentic-rag .```
+
+```docker run -p 8000:8000 --env-file .env agentic-rag```
+
+4. Run Locally
+
+```pip install -r requirements.txt```
+
+```python src/main.py``` 
+
+## API Usage
+
+```Endpoint: POST /chat
+
+{
   "query": "What are the rules for termination in the policy?"
-}</code></pre>
+}
 
-    <p><strong>Response:</strong></p>
-    <pre><code>{
+
+
+Response:
+
+{
   "response": "According to the policy, termination requires...",
   "steps": [
     {
@@ -121,7 +74,5 @@ python src/main.py</code></pre>
       "tool_input": "termination rules"
     }
   ]
-}</code></pre>
+}
 
-</body>
-</html>
