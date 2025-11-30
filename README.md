@@ -17,22 +17,7 @@ The system includes a custom LLM-as-a-Judge Evaluation Pipeline to continuously 
 ## System Architecture
 
 The system follows a Hybrid RAG architecture. The Agent acts as the central brain, routing user queries to the appropriate tool.
-
-graph TD
-    User[User API Request] --> API[FastAPI Gateway]
-    API --> Agent[LangGraph Agent Router]
-    
-    Agent -->|Policy Question?| RAG[Internal RAG Tool]
-    Agent -->|General Question?| Web[Web Search Tool]
-    
-    RAG -->|Vector Search| FAISS[(FAISS Vector DB)]
-    Web -->|Live Search| DDG[DuckDuckGo]
-    
-    FAISS --> LLM[Google Gemini 2.5]
-    DDG --> LLM
-    
-    LLM --> Response[Final Answer]
-
+![Architecture](assets/Architecture.png)
 
 ## Key Features
 
@@ -64,38 +49,6 @@ The Agent correctly identifies when to look inside the PDF versus when to search
 A generated CSV report scoring the agent's performance against ground truth data.
 ![Evaluation Score](assets/evaluation_score.png)
 
-## Tech Stack
-
-Component | Technology | Reason for Choice | LLM | Google Gemini 2.5 Flash | High speed, massive context window, and generous free tier | Orchestration
-
-LangGraph
-
-State-of-the-art framework for building stateful, loop-based agents.
-
-Backend
-
-FastAPI
-
-Async-native performance, standard for modern ML microservices.
-
-Vector DB
-
-FAISS (CPU)
-
-Lightweight, local, and efficient for document-scale retrieval.
-
-Embeddings
-
-HuggingFace (MiniLM)
-
-Runs locally on CPU, ensuring data privacy and zero API costs.
-
-Evaluation
-
-Custom LLM-as-a-Judge
-
-Removes dependency on bloated libraries; provides transparent scoring.
-
 ## Setup & Installation
 
 - Prerequisites
@@ -108,43 +61,43 @@ Removes dependency on bloated libraries; provides transparent scoring.
 
 1. Clone the Repository
 
-git clone [https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git](https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git)
+    git clone [https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git](https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git)
 
 
 2. Configure Environment
 
-Create a .env file in the root directory:
-
-```GOOGLE_API_KEY=your_actual_api_key_here```
+    Create a .env file in the root directory:
+    
+    ```GOOGLE_API_KEY=your_actual_api_key_here```
 
 
 3. Option A: Run Locally (Python)
 
-Install Dependencies:
-
-```pip install -r requirements.txt```
-
-
-Run the Application:
-
-```python -m src.main```
-
-
-The API will be available at http://localhost:8000/docs.
+    Install Dependencies:
+    
+    ```pip install -r requirements.txt```
+    
+    
+    Run the Application:
+    
+    ```python -m src.main```
+    
+    
+    The API will be available at http://localhost:8000/docs.
 
 4. Option B: Run with Docker 
 
-Build the Image:
-
-```docker build -t agentic-rag-app .```
-
-
-Run the Container:
-
-```docker run -p 8000:8000 --env-file .env agentic-rag-app```
-
-
-This isolates the application and ensures it runs consistently on any machine.
+    Build the Image:
+    
+    ```docker build -t agentic-rag-app .```
+    
+    
+    Run the Container:
+    
+    ```docker run -p 8000:8000 --env-file .env agentic-rag-app```
+    
+    
+    This isolates the application and ensures it runs consistently on any machine.
 
 ## Running Evaluations
 
@@ -165,17 +118,17 @@ This will:
 
 ## API Reference
 
-Endpoint: ```POST /chat```
+Endpoint: ```POST /chat``` click on Try it out button. In the Request body enter your query and click on Execute.
 
 Request:
 
-```{
-  "query": "What are the termination conditions in the policy?"
-}```
+```{```
+ ``` "query": "What are the termination conditions in the policy?"```
+```}```
 
 
 Response:
 
-```{
-  "response": "According to the internal policy document, termination requires a 30-day notice..."
-}```
+```{```
+  ```"response": "The termination conditions vary depending on the type of treaty or function.\n\nFor provisional application of a multilateral treaty, termination can occur:\n*   By reasonable notice from the newly independent State, party, or contracting State, followed by the expiration of the notice.\n*   For treaties mentioned in Article 17, paragraph 3, by reasonable notice from the newly independent State or all parties/contracting States, followed by the expiration of the notice.\n\nFor provisional application of a bilateral treaty, termination can occur by reasonable notice of termination.\n\nThe functions of a head of delegation or other diplomatic staff can end upon notification of their termination by the sending State to the Organization or conference.\n\nA treaty can become void and terminate under Article 64 if it conflicts with a peremptory norm of general international law. In such cases, parties are released from further obligations, but rights, obligations, or legal situations created prior to termination may be maintained if they don't conflict with the new peremptory norm.\n\nRegarding the general termination of or withdrawal from a treaty:\n*   It can happen in conformity with the treaty's provisions.\n*   It can happen at any time by consent of all parties after consultation with other contracting States.\n\nA multilateral treaty does not terminate solely because the number of parties falls below the number necessary for its entry into force, unless the treaty specifies otherwise."```
+```}```
