@@ -51,7 +51,7 @@ A generated CSV report scoring the agent's performance against ground truth data
 
 ## Setup & Installation
 
-- Prerequisites
+### Prerequisites
 
 - Python 3.10+ (Tested on 3.13)
 
