@@ -1,9 +1,8 @@
 import os
-from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
-from langchain import hub
+from langgraph.prebuilt import create_react_agent
 from dotenv import load_dotenv
 from src.rag_engine import KnowledgeBase
 
@@ -12,62 +11,48 @@ load_dotenv()
 # --- Configuration ---
 PDF_PATH = os.path.join("data", "policy.pdf")
 
-# Initialize the RAG engine
 kb = KnowledgeBase(pdf_path=PDF_PATH)
-# Index documents on startup
-kb.load_and_index()
+try:
+    kb.load_and_index()
+except Exception as e:
+    print(f"PDF Load skipped: {e}")
 
 # --- Define Tools ---
 
 @tool
 def lookup_internal_policy(query: str) -> str:
-    """
-    Useful for answering questions about specific internal policies, 
-    documents, laws, or the contents of the uploaded PDF file. 
-    ALWAYS use this tool first if the question implies looking up specific rules or documents.
-    """
+    """Useful for answering questions about specific internal policies, documents, laws, or the PDF file."""
     return kb.retrieve(query)
+
+# Initialize the tool ONCE (Global scope)
+search_tool = DuckDuckGoSearchRun()
 
 @tool
 def search_web(query: str) -> str:
-    """
-    Useful for finding current events, news, general knowledge, 
-    or information that is NOT contained in the internal policy documents.
-    """
-    search = DuckDuckGoSearchRun()
-    return search.run(query)
+    """Useful for finding current events, news, or general knowledge not in the internal docs."""
+    # Use the pre-initialized tool
+    try:
+        return search_tool.run(query)
+    except Exception as e:
+        return f"Search failed: {e}"
 
 # --- Initialize Agent ---
 
 def get_agent_executor():
-    """
-    Constructs the Agent with the Gemini LLM and the tools.
-    """
-    # 1. Setup the Gemini LLM
     if not os.getenv("GOOGLE_API_KEY"):
-        raise ValueError("GOOGLE_API_KEY not found in environment variables")
+        raise ValueError("GOOGLE_API_KEY not found in .env file")
 
+    print("Initializing Gemini Agent (Model: gemini-2.5-flash)...")
+    
+    # Using the model explicitly found in your check_model script
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", # Or gemini-1.5-pro
-        temperature=0,
-        convert_system_message_to_human=True
+        model="gemini-2.5-flash",
+        temperature=0
     )
     
-    # 2. Define the Toolkit
     tools = [lookup_internal_policy, search_web]
     
-    # 3. Pull a standard prompt for Tool Calling from LangChain Hub
-    # This prompt tells the LLM: "You have these tools. Use them to answer."
-    prompt = hub.pull("hwchase17/openai-tools-agent")
+    # Create the Agent (LangGraph)
+    agent = create_react_agent(llm, tools)
     
-    # 4. Construct the Agent
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    
-    # 5. Create the Executor (Runtime)
-    agent_executor = AgentExecutor(
-        agent=agent, 
-        tools=tools, 
-        verbose=True, # Logs thoughts to console
-        return_intermediate_steps=True # Return the thought process
-    )
-    return agent_executor
+    return agent

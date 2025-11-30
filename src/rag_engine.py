@@ -1,56 +1,64 @@
 import os
 from langchain_community.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 class KnowledgeBase:
-    """
-    Handles document loading, chunking, and vector storage.
-    """
     def __init__(self, pdf_path: str):
         self.pdf_path = pdf_path
         self.vector_store = None
-        # Using Gemini Embeddings
-        self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        # Initialize Local Embeddings
+        print("Initializing Local Embeddings (all-MiniLM-L6-v2)...")
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.index_path = "faiss_index"
         
     def load_and_index(self):
-        """
-        Loads the PDF, splits it into chunks, and builds the FAISS index.
-        """
+        # 1. Try to load existing index
+        if os.path.exists(self.index_path):
+            print("Found cached index on disk. Loading...")
+            try:
+                self.vector_store = FAISS.load_local(
+                    self.index_path, 
+                    self.embeddings, 
+                    allow_dangerous_deserialization=True
+                )
+                print("Loaded index from disk.")
+                return
+            except Exception as e:
+                print(f"Could not load cache: {e}. Re-indexing...")
+
+        # 2. Check PDF
         if not os.path.exists(self.pdf_path):
-            print(f"⚠️ Warning: File not found at {self.pdf_path}. Internal search will be empty.")
+            print(f"Warning: File not found at {self.pdf_path}")
             return
 
-        print(f"📄 Loading PDF from: {self.pdf_path}...")
+        # 3. Load and Split
+        print(f"Loading PDF from: {self.pdf_path}...")
         loader = PyPDFLoader(self.pdf_path)
         docs = loader.load()
         
-        print("✂️ Splitting text into chunks...")
+        print("Splitting text into chunks...")
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, 
             chunk_overlap=200
         )
         chunks = text_splitter.split_documents(docs)
         
-        print(f"💾 Indexing {len(chunks)} chunks into Vector Store...")
+        # 4. Create Index (Local)
+        print(f"Indexing {len(chunks)} chunks locally...")
         self.vector_store = FAISS.from_documents(chunks, self.embeddings)
-        print("✅ Indexing Complete.")
+        
+        # 5. Save
+        self.vector_store.save_local(self.index_path)
+        print("Indexing Complete and Saved.")
 
     def retrieve(self, query: str, k: int = 4) -> str:
-        """
-        Retrieves the top-k most relevant text chunks for a query.
-        Returns a single string of context.
-        """
         if not self.vector_store:
             return "No internal documents have been indexed."
             
         docs = self.vector_store.similarity_search(query, k=k)
-        
-        # Combine the content of the retrieved docs
-        context = "\n\n".join([f"[Source: Page {d.metadata.get('page', '?')}] {d.page_content}" for d in docs])
-        return context
+        return "\n\n".join([f"[Source: Page {d.metadata.get('page', '?')}] {d.page_content}" for d in docs])
