@@ -9,11 +9,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Agentic RAG Service",
-    description="An AI Microservice that routes between Internal Docs and Web Search.",
-    version="1.0"
+    description="An AI Microservice that routes between Internal Docs and Web Search using LangGraph.",
+    version="2.0"
 )
 
-# Initialize Agent Logic
+# Initialize Agent
 try:
     agent_executor = get_agent_executor()
 except Exception as e:
@@ -24,13 +24,8 @@ except Exception as e:
 class QueryRequest(BaseModel):
     query: str
 
-class StepInfo(BaseModel):
-    tool: str
-    tool_input: str
-
 class QueryResponse(BaseModel):
     response: str
-    steps: list[StepInfo] = []
 
 # --- Routes ---
 
@@ -38,7 +33,7 @@ class QueryResponse(BaseModel):
 async def root():
     return {
         "status": "active", 
-        "service": "Agentic Knowledge Search", 
+        "service": "Agentic Knowledge Search (LangGraph)", 
         "docs_url": "/docs"
     }
 
@@ -50,22 +45,19 @@ async def chat(request: QueryRequest):
     try:
         logger.info(f"Received query: {request.query}")
         
-        # Invoke the agent
-        result = agent_executor.invoke({"input": request.query})
+        # LangGraph Input Format
+        # pass a dictionary with "messages"
+        inputs = {"messages": [("user", request.query)]}
         
-        # Extract the 'Thought Process' (Intermediate Steps) to show the recruiter
-        # 'intermediate_steps' is a list of tuples: (AgentAction, Observation)
-        steps_data = []
-        if "intermediate_steps" in result:
-            for action, observation in result["intermediate_steps"]:
-                steps_data.append(StepInfo(
-                    tool=action.tool,
-                    tool_input=str(action.tool_input)
-                ))
-
+        # Invoke the agent
+        result = agent_executor.invoke(inputs)
+        
+        # The result contains the entire conversation state. 
+        # The last message is the AI's answer.
+        last_message = result["messages"][-1]
+        
         return QueryResponse(
-            response=result["output"],
-            steps=steps_data
+            response=last_message.content
         )
         
     except Exception as e:

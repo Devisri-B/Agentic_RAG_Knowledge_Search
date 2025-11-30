@@ -1,78 +1,181 @@
 # Agentic RAG Knowledge Search
 
-A production-ready AI Microservice that uses an Agentic Router to intelligently decide between retrieving answers from internal private documents (RAG) or searching the live web.
+An Autonomous AI Microservice with Hybrid Retrieval & Self-Evaluation
 
-Built with FastAPI, LangChain, Docker, and Google Gemini.
+## Overview
 
-## Features
+This project is a Production-Grade AI Microservice designed to solve the "Knowledge Silo" problem. Unlike traditional RAG systems that only look at internal documents, this Agentic System intelligently decides where to find the answer.
 
-- Agentic Routing: Uses an LLM to decide where to get information.
+It uses a LangGraph Router to autonomously switch between:
 
-- Hybrid Tools:
+1. Internal Knowledge Base: A vector database (FAISS) for proprietary policy documents.
 
-    - lookup_internal_policy: Searches local PDFs using FAISS + Embeddings.
+1. External Web Search: DuckDuckGo for real-time, public information.
+
+The system includes a custom LLM-as-a-Judge Evaluation Pipeline to continuously benchmark answer accuracy and hallucination rates.
+
+## System Architecture
+
+The system follows a Hybrid RAG architecture. The Agent acts as the central brain, routing user queries to the appropriate tool.
+
+graph TD
+    User[User API Request] --> API[FastAPI Gateway]
+    API --> Agent[LangGraph Agent Router]
     
-    - search_web: Searches DuckDuckGo for real-time info.
+    Agent -->|Policy Question?| RAG[Internal RAG Tool]
+    Agent -->|General Question?| Web[Web Search Tool]
+    
+    RAG -->|Vector Search| FAISS[(FAISS Vector DB)]
+    Web -->|Live Search| DDG[DuckDuckGo]
+    
+    FAISS --> LLM[Google Gemini 2.5]
+    DDG --> LLM
+    
+    LLM --> Response[Final Answer]
 
-- REST API: Fully documented API using FastAPI.
 
-- Containerized: Docker support for easy deployment.
+## Key Features
 
-## Project Structure
+- Agentic Reasoning: Replaces rigid if/else logic with a semantic router that understands intent.
 
-- src/rag_engine.py: Handles PDF ingestion and Vector Database (FAISS).
+- Hybrid Retrieval: Combines the security of local embeddings (HuggingFace) with the vast knowledge of the web.
 
-- src/agent.py: Defines the Agent, Tools, and LangChain logic.
+- Zero-Cost Architecture: optimized to run entirely on Free Tier APIs (Gemini Flash) and CPU-based embeddings.
 
-- src/main.py: The FastAPI server entry point.
+- Automated Evaluation: Includes a custom "Judge" pipeline that uses one LLM to grade the accuracy of another, producing detailed CSV reports.
 
-- data/: Place your PDF documents here.
+- Containerized: Fully Dockerized for consistent deployment across any environment.
+
+## Demo & Outputs
+
+1. Interactive API (Swagger UI)
+
+The service exposes a REST API documentation interface for easy testing.
+![Swagger UI Interface](assets/swagger_screenshot.png)
+
+2. Autonomous Tool Routing
+
+The Agent correctly identifies when to look inside the PDF versus when to search the web.
+![Agent PDF Routing Logic](assets/PDF_Search.png)
+![Agent Web Routing Logic](assets/Web_Search.png)
+
+3. Automated Evaluation Report
+
+A generated CSV report scoring the agent's performance against ground truth data.
+![Evaluation Score](assets/evaluation_score.png)
+
+## Tech Stack
+
+Component | Technology | Reason for Choice | LLM | Google Gemini 2.5 Flash | High speed, massive context window, and generous free tier | Orchestration
+
+LangGraph
+
+State-of-the-art framework for building stateful, loop-based agents.
+
+Backend
+
+FastAPI
+
+Async-native performance, standard for modern ML microservices.
+
+Vector DB
+
+FAISS (CPU)
+
+Lightweight, local, and efficient for document-scale retrieval.
+
+Embeddings
+
+HuggingFace (MiniLM)
+
+Runs locally on CPU, ensuring data privacy and zero API costs.
+
+Evaluation
+
+Custom LLM-as-a-Judge
+
+Removes dependency on bloated libraries; provides transparent scoring.
 
 ## Setup & Installation
 
-1. Prerequisites
+- Prerequisites
 
-- Get a Free Google Gemini API Key.
+- Python 3.10+ (Tested on 3.13)
 
-- Create a .env file in this directory:
+- Google Gemini API Key
 
-```GOOGLE_API_KEY=AIzaSyD...your_key_here...```
+- Docker Desktop (Optional, for containerization)
 
-2. Add Data
+1. Clone the Repository
 
-Place your PDF file (e.g., policy documents, course materials) into the data/ folder and rename it to policy.pdf (or update src/agent.py to match your filename).
+git clone [https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git](https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git)
 
-3. Run with Docker (Recommended)
 
-```docker build -t agentic-rag .```
+2. Configure Environment
 
-```docker run -p 8000:8000 --env-file .env agentic-rag```
+Create a .env file in the root directory:
 
-4. Run Locally
+```GOOGLE_API_KEY=your_actual_api_key_here```
+
+
+3. Option A: Run Locally (Python)
+
+Install Dependencies:
 
 ```pip install -r requirements.txt```
 
-```python src/main.py``` 
 
-## API Usage
+Run the Application:
 
-```Endpoint: POST /chat
+```python -m src.main```
 
-{
-  "query": "What are the rules for termination in the policy?"
-}
 
+The API will be available at http://localhost:8000/docs.
+
+4. Option B: Run with Docker 
+
+Build the Image:
+
+```docker build -t agentic-rag-app .```
+
+
+Run the Container:
+
+```docker run -p 8000:8000 --env-file .env agentic-rag-app```
+
+
+This isolates the application and ensures it runs consistently on any machine.
+
+## Running Evaluations
+
+This project prioritizes reliability. You can run the evaluation suite to test the agent against a "Golden Dataset" of questions and ground truths.
+
+```python -m tests.evaluate```
+
+
+This will:
+
+1. Spin up the Agent.
+
+2. Ask it a series of test questions.
+
+3. Use a separate "Judge" LLM to grade the answers (1-10).
+
+4. Generate an evaluation_report.csv file.
+
+## API Reference
+
+Endpoint: ```POST /chat```
+
+Request:
+
+```{
+  "query": "What are the termination conditions in the policy?"
+}```
 
 
 Response:
 
-{
-  "response": "According to the policy, termination requires...",
-  "steps": [
-    {
-      "tool": "lookup_internal_policy",
-      "tool_input": "termination rules"
-    }
-  ]
-}
-
+```{
+  "response": "According to the internal policy document, termination requires a 30-day notice..."
+}```

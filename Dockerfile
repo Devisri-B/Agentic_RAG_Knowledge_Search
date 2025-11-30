@@ -16,7 +16,7 @@ COPY . .
 # Expose the port FastAPI runs on
 EXPOSE 8000
 
-# Define environment variable for unbuffered logs (good for Docker)
+# Define environment variable for unbuffered logs 
 ENV PYTHONUNBUFFERED=1
 
 # Run the application
