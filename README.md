@@ -1,6 +1,6 @@
 # Agentic RAG Knowledge Search
 
-An Autonomous AI Microservice with Hybrid Retrieval & Self-Evaluation
+An Autonomous AI Microservice with Hybrid Retrieval & Self-Evaluation. Built with FastAPI, LangChain, Docker, and Google Gemini.
 
 ## Overview
 
@@ -10,7 +10,7 @@ It uses a LangGraph Router to autonomously switch between:
 
 1. Internal Knowledge Base: A vector database (FAISS) for proprietary policy documents.
 
-1. External Web Search: DuckDuckGo for real-time, public information.
+2. External Web Search: DuckDuckGo for real-time, public information.
 
 The system includes a custom LLM-as-a-Judge Evaluation Pipeline to continuously benchmark answer accuracy and hallucination rates.
 
@@ -30,6 +30,8 @@ The system follows a Hybrid RAG architecture. The Agent acts as the central brai
 - Automated Evaluation: Includes a custom "Judge" pipeline that uses one LLM to grade the accuracy of another, producing detailed CSV reports.
 
 - Containerized: Fully Dockerized for consistent deployment across any environment.
+  
+- REST API: Fully documented API using FastAPI.
 
 ## Demo & Outputs
 
@@ -51,14 +53,19 @@ A generated CSV report scoring the agent's performance against ground truth data
 
 ## Setup & Installation
 
+### Project Structure
+
+- src/rag_engine.py: Handles PDF ingestion and Vector Database (FAISS).
+- src/agent.py: Defines the Agent, Tools, and LangChain logic.
+- src/main.py: The FastAPI server entry point.
+- data/: Place your PDF documents here.
+
 ### Prerequisites
 
 - Python 3.10+ (Tested on 3.13)
-
 - Google Gemini API Key
-
 - Docker Desktop (Optional, for containerization)
-
+  
 1. Clone the Repository
 
     git clone [https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git](https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search.git)
@@ -70,8 +77,11 @@ A generated CSV report scoring the agent's performance against ground truth data
     
     ```GOOGLE_API_KEY=your_actual_api_key_here```
 
+3. Add Data
 
-3. Option A: Run Locally (Python)
+- Place your PDF file (e.g., policy documents, course materials) into the data/ folder and rename it to policy.pdf (or update src/agent.py to match your filename).
+
+4. Option A: Run Locally (Python)
 
     Install Dependencies:
     
@@ -85,7 +95,7 @@ A generated CSV report scoring the agent's performance against ground truth data
     
     The API will be available at http://localhost:8000/docs.
 
-4. Option B: Run with Docker 
+5. Option B: Run with Docker 
 
     Build the Image:
     
