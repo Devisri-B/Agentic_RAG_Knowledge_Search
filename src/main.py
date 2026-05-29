@@ -1,62 +1,87 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from src.agent import get_agent_executor
+import os
+import shutil
+import tempfile
 import logging
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import List
+from src.agent import get_agent_executor, file_processor
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Agentic RAG Service",
-    description="An AI Microservice that routes between Internal Docs and Web Search using LangGraph.",
-    version="2.0"
+    description="AI microservice that routes between uploaded documents and web search.",
+    version="3.0",
 )
 
-# Initialize Agent
 try:
     agent_executor = get_agent_executor()
 except Exception as e:
     logger.error(f"Failed to initialize agent: {e}")
     agent_executor = None
 
-# --- API Models ---
+
 class QueryRequest(BaseModel):
     query: str
+
 
 class QueryResponse(BaseModel):
     response: str
 
-# --- Routes ---
 
 @app.get("/")
 async def root():
     return {
-        "status": "active", 
-        "service": "Agentic Knowledge Search (LangGraph)", 
-        "docs_url": "/docs"
+        "status": "active",
+        "service": "Agentic Knowledge Search",
+        "docs_url": "/docs",
+        "uploaded_docs": file_processor.get_status(),
     }
+
+
+@app.post("/upload")
+async def upload_files(files: List[UploadFile] = File(...)):
+    """Accept uploaded files, index them for RAG, return a status message."""
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        saved_paths = []
+        for upload in files:
+            dest = os.path.join(tmp_dir, upload.filename)
+            with open(dest, "wb") as f:
+                shutil.copyfileobj(upload.file, f)
+            saved_paths.append(dest)
+            logger.info(f"Saved upload: {upload.filename}")
+
+        status = file_processor.process_files(saved_paths)
+        logger.info(f"Processing result: {status}")
+        return JSONResponse({"status": status})
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@app.post("/reset")
+async def reset_documents():
+    """Clear all uploaded documents from the index."""
+    file_processor.reset()
+    return {"status": "Uploaded documents cleared."}
+
 
 @app.post("/chat", response_model=QueryResponse)
 async def chat(request: QueryRequest):
     if not agent_executor:
-        raise HTTPException(status_code=500, detail="Agent not initialized (Check API Keys)")
-    
+        raise HTTPException(status_code=500, detail="Agent not initialized (check API key)")
+
     try:
-        logger.info(f"Received query: {request.query}")
-        
-        # LangGraph Input Format
-        # pass a dictionary with "messages"
-        inputs = {"messages": [("user", request.query)]}
-        
-        # Invoke the agent
-        result = agent_executor.invoke(inputs)
-        
-        # The result contains the entire conversation state. 
-        # The last message is the AI's answer.
+        logger.info(f"Query: {request.query}")
+        result = agent_executor.invoke({"messages": [("user", request.query)]})
         last_message = result["messages"][-1]
 
-        # Gemini may return content as a list of typed blocks; extract plain text
         content = last_message.content
         if isinstance(content, list):
             content = " ".join(
@@ -66,10 +91,10 @@ async def chat(request: QueryRequest):
             )
 
         return QueryResponse(response=str(content))
-        
     except Exception as e:
-        logger.error(f"Error processing query: {e}")
+        logger.error(f"Chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

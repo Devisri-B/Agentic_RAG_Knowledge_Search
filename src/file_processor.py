@@ -1,136 +1,111 @@
-"""
-File Processor for handling user-uploaded documents.
-Processes PDFs, creates FAISS indices for semantic search.
-"""
-
 import logging
-from langchain_community.document_loaders import PyPDFLoader
+import os
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    TextLoader,
+    CSVLoader,
+    Docx2txtLoader,
+)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".csv", ".docx"}
+
+
+def _loader_for(file_path: str):
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".pdf":
+        return PyPDFLoader(file_path)
+    if ext in (".txt", ".md"):
+        return TextLoader(file_path, encoding="utf-8")
+    if ext == ".csv":
+        return CSVLoader(file_path)
+    if ext == ".docx":
+        return Docx2txtLoader(file_path)
+    return None
+
 
 class FileProcessor:
-    """
-    Handles processing of user-uploaded PDF files and creates searchable indices.
-    """
-
     def __init__(self, embedding_model: str = "all-MiniLM-L6-v2"):
-        """
-        Initialize FileProcessor with embeddings.
-
-        Args:
-            embedding_model: HuggingFace embedding model name
-        """
-        logger.info(f"Initializing FileProcessor with model: {embedding_model}")
         self.embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
         self.vector_store = None
         self.status = "No files processed"
+        self._splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000, chunk_overlap=200
+        )
 
-    def process_files(self, files: list) -> str:
-        """
-        Process uploaded PDF files and create a FAISS index.
+    def process_files(self, file_paths: list[str]) -> str:
+        """Index a list of file paths into the FAISS vector store."""
+        if not file_paths:
+            return "No files provided."
 
-        Args:
-            files: List of file objects from Gradio
+        all_docs = []
+        skipped = []
 
-        Returns:
-            Status message
-        """
-        if not files:
-            self.status = "No files uploaded"
-            return "No files selected. Using internal docs + web search."
+        for path in file_paths:
+            ext = os.path.splitext(path)[1].lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                skipped.append(os.path.basename(path))
+                continue
+            try:
+                loader = _loader_for(path)
+                docs = loader.load()
+                for d in docs:
+                    d.metadata["source_file"] = os.path.basename(path)
+                all_docs.extend(docs)
+                logger.info(f"Loaded {len(docs)} page(s) from {os.path.basename(path)}")
+            except Exception as e:
+                logger.error(f"Failed to load {path}: {e}")
+                skipped.append(os.path.basename(path))
 
-        try:
-            logger.info(f"Processing {len(files)} uploaded file(s)...")
-            all_docs = []
-
-            # Load all PDF files
-            for file_obj in files:
-                file_path = file_obj if isinstance(file_obj, str) else file_obj.name
-
-                if file_path.lower().endswith(".pdf"):
-                    logger.info(f"Loading PDF: {file_path}")
-                    loader = PyPDFLoader(file_path)
-                    docs = loader.load()
-                    all_docs.extend(docs)
-                else:
-                    logger.warning(f"Skipping non-PDF file: {file_path}")
-
-            if not all_docs:
-                self.status = "No PDFs found in uploads"
-                return "No valid PDF files uploaded. Using internal docs + web search."
-
-            # Split documents into chunks
-            logger.info(f"Splitting {len(all_docs)} documents into chunks...")
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000, chunk_overlap=200
+        if not all_docs:
+            self.status = "No supported files could be loaded"
+            return (
+                f"Could not load any files. "
+                f"Supported types: {', '.join(sorted(SUPPORTED_EXTENSIONS))}. "
+                + (f"Skipped: {', '.join(skipped)}" if skipped else "")
             )
-            chunks = text_splitter.split_documents(all_docs)
 
-            # Create FAISS index
-            logger.info(f"Creating FAISS index from {len(chunks)} chunks...")
+        chunks = self._splitter.split_documents(all_docs)
+
+        if self.vector_store is None:
             self.vector_store = FAISS.from_documents(chunks, self.embeddings)
+        else:
+            # Merge into existing index so previous uploads are retained
+            new_store = FAISS.from_documents(chunks, self.embeddings)
+            self.vector_store.merge_from(new_store)
 
-            self.status = (
-                f"Indexed {len(chunks)} chunks from {len(all_docs)} pages"
-            )
-            logger.info(self.status)
-            return f"✓ SUCCESS: {self.status} - Your uploaded documents will be searched first!"
-
-        except Exception as e:
-            error_msg = f"Error processing files: {str(e)}"
-            logger.error(error_msg)
-            self.status = "Error loading files"
-            return f"ERROR: {error_msg} - Falling back to internal docs + web search."
+        file_count = len(file_paths) - len(skipped)
+        self.status = f"Indexed {len(chunks)} chunks from {file_count} file(s)"
+        note = f" (skipped: {', '.join(skipped)})" if skipped else ""
+        logger.info(self.status)
+        return f"Done: {self.status}{note}"
 
     def retrieve(self, query: str, k: int = 4) -> str:
-        """
-        Retrieve relevant chunks from uploaded files.
-
-        Args:
-            query: Search query
-            k: Number of results to return
-
-        Returns:
-            Retrieved content or empty string if no index
-        """
         if not self.vector_store:
             return ""
-
         try:
             docs = self.vector_store.similarity_search(query, k=k)
             if not docs:
                 return ""
             return "\n\n".join(
-                [f"[Uploaded Document] {d.page_content}" for d in docs]
+                f"[File: {d.metadata.get('source_file', '?')}] {d.page_content}"
+                for d in docs
             )
         except Exception as e:
-            logger.error(f"Error retrieving from uploaded files: {e}")
+            logger.error(f"Retrieval error: {e}")
             return ""
 
     def has_documents(self) -> bool:
-        """
-        Check if vector store has documents.
-
-        Returns:
-            True if documents are loaded, False otherwise
-        """
         return self.vector_store is not None
 
     def get_status(self) -> str:
-        """
-        Get current processing status.
-
-        Returns:
-            Status message
-        """
         return self.status
 
     def reset(self) -> None:
-        """Reset the file processor and clear loaded documents."""
         self.vector_store = None
         self.status = "No files processed"
-        logger.info("File processor reset")
+        logger.info("FileProcessor reset")
