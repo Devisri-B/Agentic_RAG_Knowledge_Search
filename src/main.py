@@ -55,10 +55,17 @@ async def chat(request: QueryRequest):
         # The result contains the entire conversation state. 
         # The last message is the AI's answer.
         last_message = result["messages"][-1]
-        
-        return QueryResponse(
-            response=last_message.content
-        )
+
+        # Gemini may return content as a list of typed blocks; extract plain text
+        content = last_message.content
+        if isinstance(content, list):
+            content = " ".join(
+                block["text"] if isinstance(block, dict) else str(block)
+                for block in content
+                if not isinstance(block, dict) or block.get("type") == "text"
+            )
+
+        return QueryResponse(response=str(content))
         
     except Exception as e:
         logger.error(f"Error processing query: {e}")

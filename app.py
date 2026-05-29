@@ -1,8 +1,7 @@
 import os
-import gradio as gr
-from src.agent import get_agent_executor
-from src.file_processor import FileProcessor
 import logging
+import gradio as gr
+import requests
 
 # Suppress HuggingFace tokenizer parallelism warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -11,42 +10,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Agent
-try:
-    agent_executor = get_agent_executor()
-    logger.info("Agent initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize agent: {e}")
-    agent_executor = None
-
-# Initialize File Processor for user-uploaded documents
-file_processor = FileProcessor(embedding_model="all-MiniLM-L6-v2")
-
-def process_uploaded_files(files) -> str:
-    """
-    Wrapper function to process uploaded PDF files using FileProcessor.
-
-    Args:
-        files: List of file objects from Gradio
-
-    Returns:
-        Status message
-    """
-    return file_processor.process_files(files)
-
-
-def retrieve_from_uploaded_files(query: str, k: int = 4) -> str:
-    """
-    Wrapper function to retrieve content from uploaded files using FileProcessor.
-
-    Args:
-        query: Search query
-        k: Number of results to return
-
-    Returns:
-        Retrieved content or empty string if no index
-    """
-    return file_processor.retrieve(query, k=k)
+# FastAPI endpoint configuration
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0.1:8000")
+CHAT_ENDPOINT = f"{FASTAPI_URL}/chat"
 
 
 def determine_source(response_text) -> str:
@@ -76,7 +42,7 @@ def determine_source(response_text) -> str:
 
 def process_query(message: str, chat_history: list) -> tuple[list, str]:
     """
-    Process user query through uploaded files first, then agent + web search.
+    Process user query by calling the FastAPI /chat endpoint.
     
     Args:
         message: User query
@@ -85,55 +51,37 @@ def process_query(message: str, chat_history: list) -> tuple[list, str]:
     Returns:
         Tuple of (updated_chat_history, status_message)
     """
-    if not agent_executor:
-        error_msg = "Agent not initialized. Please check GOOGLE_API_KEY."
-        chat_history.append([message, f"ERROR: {error_msg}"])
-        return chat_history, error_msg
-    
     try:
-        logger.info(f"Processing query: {message}")
+        logger.info(f"Sending query to FastAPI: {message}")
+        response = requests.post(CHAT_ENDPOINT, json={"query": message}, timeout=60)
+        response.raise_for_status()
+        payload = response.json()
+        response_text = payload.get("response", "")
         
-        # Step 1: Check uploaded files first
-        uploaded_content = retrieve_from_uploaded_files(message)
-        
-        if uploaded_content:
-            # If we found relevant content in uploaded files, use it directly
-            logger.info("Found content in uploaded files")
-            source = "Source: Uploaded Documents"
-            full_response = f"{uploaded_content}\n\n--- {source} ---"
-            chat_history.append([message, full_response])
-            return chat_history, source
-        
-        # Step 2: Fall back to agent (which uses RAG + web search)
-        inputs = {"messages": [("user", message)]}
-        result = agent_executor.invoke(inputs)
-        
-        # Extract response from agent output
-        last_message = result["messages"][-1]
-        response_text = last_message.content
-        
-        # Convert to string if it's a list
         if isinstance(response_text, list):
             response_text = "\n".join(str(item) for item in response_text)
         else:
             response_text = str(response_text)
         
-        # Determine source
         source = determine_source(response_text)
-        
-        # Format response with source indicator
         full_response = f"{response_text}\n\n--- {source} ---"
         
-        # Append to chat history as list [user, assistant]
-        chat_history.append([message, full_response])
+        chat_history.append({"role": "user", "content": message})
+        chat_history.append({"role": "assistant", "content": full_response})
         
-        logger.info(f"Response generated successfully")
+        logger.info("Response received from FastAPI")
         return chat_history, f"Query processed. {source}"
-        
+    except requests.exceptions.RequestException as e:
+        error_msg = f"FastAPI request failed: {str(e)}"
+        logger.error(error_msg)
+        chat_history.append({"role": "user", "content": message})
+        chat_history.append({"role": "assistant", "content": f"ERROR: {error_msg}"})
+        return chat_history, error_msg
     except Exception as e:
         error_msg = f"Error processing query: {str(e)}"
         logger.error(error_msg)
-        chat_history.append([message, f"ERROR: {error_msg}"])
+        chat_history.append({"role": "user", "content": message})
+        chat_history.append({"role": "assistant", "content": f"ERROR: {error_msg}"})
         return chat_history, error_msg
 
 def clear_chat() -> tuple[list, str]:
@@ -143,25 +91,7 @@ def clear_chat() -> tuple[list, str]:
 # Build Gradio Interface
 with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     gr.Markdown("# 🔍 Agentic RAG Knowledge Search")
-    gr.Markdown("Upload your documents or ask questions answered from internal docs (RAG) or the live web — the agent decides.")
-    
-    with gr.Group():
-        gr.Markdown("### Upload Your Documents (Optional)")
-        file_upload = gr.File(
-            label="Upload PDF files",
-            file_count="multiple",
-            file_types=[".pdf"]
-        )
-        upload_btn = gr.Button("Process Uploaded Files", variant="secondary")
-        upload_status = gr.Textbox(
-            label="Upload Status",
-            interactive=False,
-            lines=2
-        )
-    
-    # Set initial status
-    upload_status.value = "No files uploaded. Using internal docs + web search."
-    
+    gr.Markdown("Ask questions answered from internal documents (RAG) or the live web — the agent decides.")
     with gr.Group():
         chatbot = gr.Chatbot(
             label="Conversation History",
@@ -171,7 +101,7 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     
     with gr.Row():
         user_input = gr.Textbox(
-            placeholder="Ask a question about your uploaded documents or anything on the web...",
+            placeholder="Ask a question about policy documents or anything on the web...",
             label="Your Question",
             lines=2
         )
@@ -184,13 +114,6 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
         label="Status",
         interactive=False,
         lines=1
-    )
-    
-    # Wire up file upload
-    upload_btn.click(
-        fn=process_uploaded_files,
-        inputs=[file_upload],
-        outputs=[upload_status]
     )
     
     # Wire up chat interactions

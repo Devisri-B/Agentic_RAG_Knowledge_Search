@@ -42,11 +42,9 @@ def get_agent_executor():
     if not os.getenv("GOOGLE_API_KEY"):
         raise ValueError("GOOGLE_API_KEY not found in .env file")
 
-    print("Initializing Gemini Agent (Model: gemini-2.5-flash)...")
-    
-    # Using the model explicitly found in your check_model script
+    print("Initializing Gemini Agent (Model: gemini-2.5-flash-lite)...")
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         temperature=0
     )
     
