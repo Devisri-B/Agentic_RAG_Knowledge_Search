@@ -1,3 +1,15 @@
+---
+title: Agentic RAG Knowledge Search
+emoji: 🔍
+colorFrom: blue
+colorTo: purple
+sdk: gradio
+sdk_version: 4.44.0
+app_file: app.py
+pinned: false
+short_description: Agentic RAG — routes queries to internal docs (FAISS) or live web search
+---
+
 # Agentic RAG Knowledge Search
 
 An Autonomous AI Microservice with Hybrid Retrieval & Self-Evaluation. Built with FastAPI, LangChain, Docker, and Google Gemini.
