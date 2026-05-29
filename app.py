@@ -18,12 +18,16 @@ except Exception as e:
     logger.error(f"Failed to initialize agent: {e}")
     agent_executor = None
 
-def determine_source(response_text: str) -> str:
+def determine_source(response_text) -> str:
     """
     Attempt to determine if the response came from RAG or Web Search.
     Looks for keywords or source indicators in the response.
     """
-    response_lower = response_text.lower()
+    # Convert list to string if needed
+    if isinstance(response_text, list):
+        response_text = " ".join(str(item) for item in response_text)
+    
+    response_lower = str(response_text).lower()
     
     # Check for web search indicators
     if any(keyword in response_lower for keyword in ["search", "web", "duckduckgo", "internet", "online"]):
@@ -52,12 +56,8 @@ def process_query(message: str, chat_history: list) -> tuple[list, str]:
     """
     if not agent_executor:
         error_msg = "Agent not initialized. Please check GOOGLE_API_KEY."
-        chat_history.append({"role": "user", "content": message})
-        chat_history.append({"role": "assistant", "content": f"ERROR: {error_msg}"})
+        chat_history.append([message, f"ERROR: {error_msg}"])
         return chat_history, error_msg
-    
-    # Add user message to history
-    chat_history.append({"role": "user", "content": message})
     
     try:
         logger.info(f"Processing query: {message}")
@@ -72,14 +72,20 @@ def process_query(message: str, chat_history: list) -> tuple[list, str]:
         last_message = result["messages"][-1]
         response_text = last_message.content
         
+        # Convert to string if it's a list
+        if isinstance(response_text, list):
+            response_text = "\n".join(str(item) for item in response_text)
+        else:
+            response_text = str(response_text)
+        
         # Determine source
         source = determine_source(response_text)
         
         # Format response with source indicator
         full_response = f"{response_text}\n\n--- {source} ---"
         
-        # Add assistant response to history
-        chat_history.append({"role": "assistant", "content": full_response})
+        # Append to chat history as list [user, assistant]
+        chat_history.append([message, full_response])
         
         logger.info(f"Response generated successfully")
         return chat_history, f"Query processed. {source}"
@@ -87,21 +93,20 @@ def process_query(message: str, chat_history: list) -> tuple[list, str]:
     except Exception as e:
         error_msg = f"Error processing query: {str(e)}"
         logger.error(error_msg)
-        chat_history.append({"role": "assistant", "content": f"ERROR: {error_msg}"})
+        chat_history.append([message, f"ERROR: {error_msg}"])
         return chat_history, error_msg
 
 def clear_chat() -> tuple[list, str]:
     """Clear chat history."""
-    return [], "Chat cleared."
+    return [], ""
 
 # Build Gradio Interface
-with gr.Blocks(title="Agentic RAG Knowledge Search", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     gr.Markdown("# 🔍 Agentic RAG Knowledge Search")
     gr.Markdown("Ask questions answered from internal documents (RAG) or the live web — the agent decides.")
     
     with gr.Group():
         chatbot = gr.Chatbot(
-            type="messages",
             label="Conversation History",
             show_label=True,
             height=400
@@ -130,7 +135,7 @@ with gr.Blocks(title="Agentic RAG Knowledge Search", theme=gr.themes.Soft()) as 
         inputs=[user_input, chatbot],
         outputs=[chatbot, status_output]
     ).then(
-        fn=lambda: ("", []),  # Clear input and maintain history
+        fn=lambda: "",
         inputs=[],
         outputs=[user_input]
     )
@@ -147,10 +152,10 @@ with gr.Blocks(title="Agentic RAG Knowledge Search", theme=gr.themes.Soft()) as 
         inputs=[user_input, chatbot],
         outputs=[chatbot, status_output]
     ).then(
-        fn=lambda: ("", []),  # Clear input and maintain history
+        fn=lambda: "",
         inputs=[],
         outputs=[user_input]
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=False, theme=gr.themes.Soft())
