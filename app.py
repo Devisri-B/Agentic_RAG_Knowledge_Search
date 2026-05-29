@@ -1,6 +1,7 @@
 import os
 import gradio as gr
 from src.agent import get_agent_executor
+from src.file_processor import FileProcessor
 import logging
 
 # Suppress HuggingFace tokenizer parallelism warning
@@ -17,6 +18,36 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize agent: {e}")
     agent_executor = None
+
+# Initialize File Processor for user-uploaded documents
+file_processor = FileProcessor(embedding_model="all-MiniLM-L6-v2")
+
+def process_uploaded_files(files) -> str:
+    """
+    Wrapper function to process uploaded PDF files using FileProcessor.
+
+    Args:
+        files: List of file objects from Gradio
+
+    Returns:
+        Status message
+    """
+    return file_processor.process_files(files)
+
+
+def retrieve_from_uploaded_files(query: str, k: int = 4) -> str:
+    """
+    Wrapper function to retrieve content from uploaded files using FileProcessor.
+
+    Args:
+        query: Search query
+        k: Number of results to return
+
+    Returns:
+        Retrieved content or empty string if no index
+    """
+    return file_processor.retrieve(query, k=k)
+
 
 def determine_source(response_text) -> str:
     """
@@ -45,7 +76,7 @@ def determine_source(response_text) -> str:
 
 def process_query(message: str, chat_history: list) -> tuple[list, str]:
     """
-    Process user query through the agent and return updated chat history and status.
+    Process user query through uploaded files first, then agent + web search.
     
     Args:
         message: User query
@@ -62,10 +93,19 @@ def process_query(message: str, chat_history: list) -> tuple[list, str]:
     try:
         logger.info(f"Processing query: {message}")
         
-        # Format input for LangGraph agent
-        inputs = {"messages": [("user", message)]}
+        # Step 1: Check uploaded files first
+        uploaded_content = retrieve_from_uploaded_files(message)
         
-        # Invoke agent
+        if uploaded_content:
+            # If we found relevant content in uploaded files, use it directly
+            logger.info("Found content in uploaded files")
+            source = "Source: Uploaded Documents"
+            full_response = f"{uploaded_content}\n\n--- {source} ---"
+            chat_history.append([message, full_response])
+            return chat_history, source
+        
+        # Step 2: Fall back to agent (which uses RAG + web search)
+        inputs = {"messages": [("user", message)]}
         result = agent_executor.invoke(inputs)
         
         # Extract response from agent output
@@ -103,7 +143,24 @@ def clear_chat() -> tuple[list, str]:
 # Build Gradio Interface
 with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     gr.Markdown("# 🔍 Agentic RAG Knowledge Search")
-    gr.Markdown("Ask questions answered from internal documents (RAG) or the live web — the agent decides.")
+    gr.Markdown("Upload your documents or ask questions answered from internal docs (RAG) or the live web — the agent decides.")
+    
+    with gr.Group():
+        gr.Markdown("### Upload Your Documents (Optional)")
+        file_upload = gr.File(
+            label="Upload PDF files",
+            file_count="multiple",
+            file_types=[".pdf"]
+        )
+        upload_btn = gr.Button("Process Uploaded Files", variant="secondary")
+        upload_status = gr.Textbox(
+            label="Upload Status",
+            interactive=False,
+            lines=2
+        )
+    
+    # Set initial status
+    upload_status.value = "No files uploaded. Using internal docs + web search."
     
     with gr.Group():
         chatbot = gr.Chatbot(
@@ -114,7 +171,7 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     
     with gr.Row():
         user_input = gr.Textbox(
-            placeholder="Ask a question about policy documents or anything on the web...",
+            placeholder="Ask a question about your uploaded documents or anything on the web...",
             label="Your Question",
             lines=2
         )
@@ -129,7 +186,14 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
         lines=1
     )
     
-    # Wire up interactions
+    # Wire up file upload
+    upload_btn.click(
+        fn=process_uploaded_files,
+        inputs=[file_upload],
+        outputs=[upload_status]
+    )
+    
+    # Wire up chat interactions
     submit_btn.click(
         fn=process_query,
         inputs=[user_input, chatbot],
