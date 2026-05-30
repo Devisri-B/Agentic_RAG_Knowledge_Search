@@ -20,6 +20,23 @@ except Exception as e:
 
 _search_tool = DuckDuckGoSearchRun()
 
+MODEL_NAME = "gemini-2.0-flash"
+
+SYSTEM_PROMPT = (
+    "You are a precise research assistant with two tools:\n"
+    "- `lookup_documents`: searches the user's uploaded files and the internal knowledge base. "
+    "Prefer this for questions about policies, documents, or any uploaded content.\n"
+    "- `search_web`: searches the live web. Use this for current events, news, or general "
+    "knowledge that is unlikely to be in the documents.\n\n"
+    "Guidelines:\n"
+    "1. Choose the tool that best fits the question; use both if needed.\n"
+    "2. Ground your answer in the retrieved content — do not invent facts. If the documents "
+    "do not contain the answer, say so and try the web.\n"
+    "3. Use the conversation summary and recent turns to resolve follow-up questions "
+    "(e.g. pronouns like 'it' or 'that').\n"
+    "4. Be concise, accurate, and cite the source of your information when relevant."
+)
+
 
 @tool
 def lookup_documents(query: str) -> str:
@@ -42,17 +59,26 @@ def search_web(query: str) -> str:
 
 
 @lru_cache(maxsize=32)
-def get_agent_executor(api_key: str):
-    """Build (and cache) a LangGraph agent for the given Gemini API key.
-
-    Each visitor supplies their own key (BYOK), so the LLM is created per key.
-    The shared tools, embeddings, and RAG index are module-level and reused.
-    Cached by key so repeat requests from the same user don't rebuild the graph."""
+def get_llm(api_key: str) -> ChatGoogleGenerativeAI:
+    """Cached Gemini client for a given key — reused by the agent and the summarizer."""
     if not api_key or not api_key.strip():
         raise ValueError("A Google Gemini API key is required.")
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+    return ChatGoogleGenerativeAI(
+        model=MODEL_NAME,
         temperature=0,
         google_api_key=api_key.strip(),
     )
-    return create_react_agent(llm, [lookup_documents, search_web])
+
+
+@lru_cache(maxsize=32)
+def get_agent_executor(api_key: str):
+    """Build (and cache) a LangGraph ReAct agent for the given Gemini API key.
+
+    Each visitor supplies their own key (BYOK). The shared tools, embeddings, and
+    RAG index are module-level and reused; only the LLM is per-key. Cached by key
+    so repeat requests from the same user don't rebuild the graph."""
+    return create_react_agent(
+        get_llm(api_key),
+        [lookup_documents, search_web],
+        prompt=SYSTEM_PROMPT,
+    )

@@ -23,8 +23,31 @@ The system includes a custom LLM-as-a-Judge Evaluation Pipeline to continuously 
 
 ## System Architecture
 
-The system follows a Hybrid RAG architecture. The Agent acts as the central brain, routing user queries to the appropriate tool.
-![Architecture](assets/Architecture.png)
+The system follows a Hybrid RAG architecture. The Agent acts as the central brain, routing user queries to the appropriate tool, while local evaluation models score every answer and conversation memory keeps the chat coherent.
+
+```mermaid
+flowchart TD
+    User([User]) -->|"BYOK key, question, files"| UI["Gradio UI<br/>(chat · upload · live metrics)"]
+    UI -->|REST| API["FastAPI backend"]
+
+    subgraph Backend
+        API --> MEM["Conversation Memory<br/>(sliding window + summarization)"]
+        MEM --> AGENT["LangGraph ReAct Agent<br/>(Gemini 2.0 Flash · system prompt)"]
+        AGENT -->|chooses tool| LOOKUP["lookup_documents"]
+        AGENT -->|chooses tool| WEB["search_web"]
+        LOOKUP --> FAISS[("FAISS vector store<br/>uploaded files + fallback PDF")]
+        WEB --> DDG["DuckDuckGo"]
+        AGENT --> ANS["Answer"]
+        ANS --> EVAL["Evaluator (local, no API)<br/>NLI faithfulness · cosine relevance · ROUGE accuracy"]
+    end
+
+    EVAL -->|"answer + citations + scores"| UI
+
+    EMB["Shared all-MiniLM embeddings"] -.-> FAISS
+    EMB -.-> EVAL
+```
+
+A rendered diagram is also available at `assets/Architecture.png`.
 
 ## Key Features
 
@@ -45,6 +68,12 @@ The system follows a Hybrid RAG architecture. The Agent acts as the central brai
 - Live, No-Cost Evaluation Metrics: Every answer is scored in real time using local models only (no extra API calls) — see [Live Evaluation Metrics](#live-evaluation-metrics) below.
 
 - Single-Image Deployment: The FastAPI backend and Gradio UI run together from one Docker image (`start.sh`), ready for HuggingFace Spaces.
+
+- Conversational Memory: The agent remembers the conversation so follow-up questions ("what about its termination clause?") resolve correctly. Older turns are automatically condensed into a running summary to keep context — and token cost — bounded in long chats (see [Conversation Memory](#conversation-memory)).
+
+- Bring Your Own Key (BYOK): Each visitor supplies their own Gemini key in the UI, so a public demo never spends the owner's quota.
+
+- Tested & CI: A `pytest` suite covers the core logic (helpers, memory, evaluation metrics) and runs on every push via GitHub Actions with `ruff` linting.
 
 ## User Document Upload
 
@@ -68,6 +97,18 @@ After every response, three metrics are computed **locally — no extra LLM/API 
 > **Why NLI instead of plain similarity?** Cosine similarity measures *topical* overlap, so "the treaty can be terminated" and "the treaty cannot be terminated" score nearly identically despite opposite meaning. The NLI model checks logical *entailment*, so it correctly flags contradictions as unfaithful.
 
 The offline `tests/evaluate.py` pipeline additionally uses an LLM-as-a-Judge for a second opinion against a golden dataset (see [Running Evaluations](#running-evaluations)).
+
+## Conversation Memory
+
+The agent is multi-turn: each session keeps its own history, so follow-up questions that rely on earlier context are resolved correctly.
+
+To keep this affordable and within the model's context window during long chats, memory uses a **sliding window + rolling summarization** strategy (`src/memory.py`):
+
+- The most recent turns are kept verbatim.
+- Once the history grows past a threshold, the **older** turns are folded into a concise running summary with a single LLM call, then dropped from the window.
+- Each request therefore sends only `[summary] + [recent turns] + [new question]` — bounded in size no matter how long the conversation runs.
+
+Sessions are isolated per browser (a `session_id` is generated on page load), and **Clear Chat** wipes both the UI and the server-side memory. The summarization logic takes an injected summarizer function, so it is covered by fast unit tests with no API calls.
 
 ## Demo & Outputs
 
@@ -98,8 +139,12 @@ A generated CSV report scoring the agent's performance against ground truth data
 - src/embeddings.py: Shared, single-load embedding model reused by RAG and the evaluator.
 - src/evaluator.py: Local evaluation metrics (NLI faithfulness, relevance, accuracy).
 - src/prefetch_models.py: Downloads models at image-build time for fast cold starts.
+- src/memory.py: Conversation memory with sliding-window summarization.
+- src/utils.py: Pure helper functions (content/citation parsing, error handling).
 - app.py: The Gradio user interface (chat, file upload, live metrics).
 - start.sh: Launches the FastAPI backend and Gradio UI together (used by Docker).
+- tests/: Unit tests (`pytest`) for helpers, memory, and evaluation metrics.
+- .github/workflows/ci.yml: GitHub Actions CI — runs `ruff` + `pytest` on every push.
 - data/: Place your default PDF documents here. (used when user didn't upload any files)
 
 ### Prerequisites
@@ -148,10 +193,10 @@ A generated CSV report scoring the agent's performance against ground truth data
     
     Run the Container:
     
-    ```docker run -p 8000:8000 --env-file .env agentic-rag-app```
+    ```docker run -p 7860:7860 agentic-rag-app```
     
     
-    This isolates the application and ensures it runs consistently on any machine.
+    Then open the UI at http://localhost:7860. No `--env-file` is needed — you enter your Gemini key in the UI (BYOK). This isolates the application and ensures it runs consistently on any machine.
 
 6. Option C: Run the full app (UI + API together)
 
@@ -186,6 +231,18 @@ The Gemini free tier allows roughly **1,500 requests/day**, and each user questi
 - A question cannot be submitted until a key is provided; an invalid key returns a clear error.
 
 This is the standard pattern for public LLM demos. (Alternatives, if you ever want them: keep your own key as a Space secret with rate limiting, make the Space private, or upgrade to a paid Gemini plan.)
+
+## Testing
+
+Unit tests cover the core logic — helper functions, conversation memory/summarization, and the evaluation metrics — and run without any model downloads or API calls, so they are fast and CI-friendly.
+
+```bash
+pip install pytest ruff numpy rouge-score
+pytest            # run the unit tests
+ruff check src/ app.py tests/   # lint
+```
+
+These also run automatically on every push via GitHub Actions (`.github/workflows/ci.yml`).
 
 ## Running Evaluations
 

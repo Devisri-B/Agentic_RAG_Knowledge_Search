@@ -14,8 +14,10 @@ import re
 import logging
 import numpy as np
 from rouge_score import rouge_scorer
-from sentence_transformers import util
-from src.embeddings import get_sentence_transformer
+
+# Heavy model libraries (sentence_transformers, torch) are imported lazily inside
+# the functions that need them, so importing this module — and running the
+# ROUGE/text-helper unit tests — stays fast and dependency-light in CI.
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,8 @@ def _softmax(logits: np.ndarray) -> np.ndarray:
 def _cosine(text_a: str, text_b: str) -> float:
     if not text_a.strip() or not text_b.strip():
         return 0.0
+    from sentence_transformers import util
+    from src.embeddings import get_sentence_transformer
     m = get_sentence_transformer()
     return round(float(util.cos_sim(
         m.encode(text_a, convert_to_tensor=True),
@@ -79,6 +83,8 @@ def faithfulness_score(answer: str, source_context: str) -> float:
     passages = _split_passages(source_context)
 
     try:
+        from sentence_transformers import util
+        from src.embeddings import get_sentence_transformer
         model = get_sentence_transformer()
         pas_emb = model.encode(passages, convert_to_tensor=True)
         sen_emb = model.encode(sentences, convert_to_tensor=True)

@@ -225,7 +225,7 @@ def run_evaluation(test_cases: list = None):
         print(f"Avg Faithfulness (hallucination): {sum(numeric_faith)/len(numeric_faith):.1f}/10")
     if numeric_acc:
         print(f"Avg Accuracy:                     {sum(numeric_acc)/len(numeric_acc):.1f}/10")
-    print(f"\nReport saved to evaluation_report.csv")
+    print("\nReport saved to evaluation_report.csv")
 
 
 if __name__ == "__main__":

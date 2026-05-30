@@ -1,4 +1,5 @@
 import os
+import uuid
 import gradio as gr
 import requests
 
@@ -8,6 +9,7 @@ FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0.1:8000")
 CHAT_ENDPOINT = f"{FASTAPI_URL}/chat"
 UPLOAD_ENDPOINT = f"{FASTAPI_URL}/upload"
 RESET_ENDPOINT = f"{FASTAPI_URL}/reset"
+CLEAR_MEMORY_ENDPOINT = f"{FASTAPI_URL}/clear_memory"
 
 SUPPORTED_TYPES = [".pdf", ".docx", ".txt", ".md", ".csv"]
 
@@ -59,7 +61,6 @@ def _fmt(label: str, value: float, hint: str) -> str:
 
 
 def _faith_hint(score: float, source: str) -> str:
-    src = SOURCE_LABELS.get(source, source)
     what = "web results" if source == "web" else "retrieved documents"
     if score >= 0.75:
         return f"Answer is well-grounded in the {what}"
@@ -106,13 +107,13 @@ def _format_metrics(source: str, faithfulness, answer_relevance, accuracy) -> st
     return "\n".join(lines)
 
 
-def process_query(message: str, api_key: str, reference: str, chat_history: list) -> tuple[list, str, str]:
+def process_query(message: str, api_key: str, reference: str, session_id: str, chat_history: list) -> tuple[list, str, str]:
     if not api_key.strip():
         return chat_history, "Enter your Google Gemini API key above to start.", ""
     if not message.strip():
         return chat_history, "Please enter a question.", ""
     try:
-        payload = {"query": message, "api_key": api_key.strip()}
+        payload = {"query": message, "api_key": api_key.strip(), "session_id": session_id}
         if reference.strip():
             payload["reference"] = reference.strip()
 
@@ -128,10 +129,15 @@ def process_query(message: str, api_key: str, reference: str, chat_history: list
         data = resp.json()
         response_text = data.get("response", "")
         source = data.get("source", "unknown")
+        citations = data.get("citations", [])
 
         src_label = SOURCE_LABELS.get(source, source)
+        footer = f"\n\n--- Source: {src_label} ---"
+        if citations:
+            footer += "\n📎 Sources used: " + "; ".join(citations)
+
         chat_history.append({"role": "user", "content": message})
-        chat_history.append({"role": "assistant", "content": f"{response_text}\n\n--- Source: {src_label} ---"})
+        chat_history.append({"role": "assistant", "content": f"{response_text}{footer}"})
 
         metrics_md = _format_metrics(
             source,
@@ -148,15 +154,24 @@ def process_query(message: str, api_key: str, reference: str, chat_history: list
         return chat_history, error, ""
 
 
-def clear_chat() -> tuple[list, str, str]:
+def clear_chat(session_id: str) -> tuple[list, str, str]:
+    """Clear the UI and the server-side conversation memory for this session."""
+    try:
+        requests.post(CLEAR_MEMORY_ENDPOINT, params={"session_id": session_id}, timeout=10)
+    except requests.exceptions.RequestException:
+        pass
     return [], "", ""
 
 
 with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
+    # Per-browser-session id for server-side conversation memory
+    session_id = gr.State()
+
     gr.Markdown("# Agentic RAG Knowledge Search")
     gr.Markdown(
         "Upload your own documents and ask questions. "
         "The agent searches your files via RAG first, then falls back to web search if needed. "
+        "It remembers the conversation, so follow-up questions work. "
         "**No files uploaded?** The agent uses a built-in legal/policy document as the default knowledge base."
     )
 
@@ -227,22 +242,25 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
         )
         metrics_output = gr.Markdown()
 
+    # Assign a fresh session id when the page loads
+    demo.load(fn=lambda: str(uuid.uuid4()), inputs=[], outputs=[session_id])
+
     upload_btn.click(fn=upload_files, inputs=[file_input], outputs=[upload_status])
     reset_btn.click(fn=reset_documents, inputs=[], outputs=[upload_status])
 
     submit_btn.click(
         fn=process_query,
-        inputs=[user_input, api_key_input, reference_input, chatbot],
+        inputs=[user_input, api_key_input, reference_input, session_id, chatbot],
         outputs=[chatbot, status_output, metrics_output],
     ).then(fn=lambda: "", inputs=[], outputs=[user_input])
 
     user_input.submit(
         fn=process_query,
-        inputs=[user_input, api_key_input, reference_input, chatbot],
+        inputs=[user_input, api_key_input, reference_input, session_id, chatbot],
         outputs=[chatbot, status_output, metrics_output],
     ).then(fn=lambda: "", inputs=[], outputs=[user_input])
 
-    clear_btn.click(fn=clear_chat, inputs=[], outputs=[chatbot, status_output, metrics_output])
+    clear_btn.click(fn=clear_chat, inputs=[session_id], outputs=[chatbot, status_output, metrics_output])
 
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860, share=False, theme=gr.themes.Soft(), css=CSS)
