@@ -1,6 +1,13 @@
+
 # Agentic RAG Knowledge Search
 
 An Autonomous AI Microservice with Hybrid Retrieval & Self-Evaluation. Built with FastAPI, LangChain, Docker, and Google Gemini.
+
+> **Deploying on HuggingFace Spaces:** create a **Docker** Space and push this repo. No API-key
+> secret is required — the app uses **Bring Your Own Key (BYOK)**: each visitor enters their own
+> Google Gemini key in the UI, so the public demo never spends your quota. The container runs the
+> FastAPI backend (internal, port 8000) and the Gradio UI (public, port 7860) together via
+> `start.sh`. Models are baked into the image at build time, so cold starts are fast.
 
 ## Overview
 
@@ -33,6 +40,35 @@ The system follows a Hybrid RAG architecture. The Agent acts as the central brai
   
 - REST API: Fully documented API using FastAPI.
 
+- User Document Upload: Users can upload their own files (PDF, DOCX, TXT, MD, CSV) at runtime. Uploaded documents are indexed instantly and searched first; if nothing is uploaded, the agent falls back to the built-in legal/policy document.
+
+- Live, No-Cost Evaluation Metrics: Every answer is scored in real time using local models only (no extra API calls) — see [Live Evaluation Metrics](#live-evaluation-metrics) below.
+
+- Single-Image Deployment: The FastAPI backend and Gradio UI run together from one Docker image (`start.sh`), ready for HuggingFace Spaces.
+
+## User Document Upload
+
+The Gradio UI includes an upload panel. Users can drag in one or more files and click **Process & Index Files**.
+
+- Supported formats: `.pdf`, `.docx`, `.txt`, `.md`, `.csv`
+- Multiple files can be uploaded; new uploads are merged into the existing index.
+- **Clear Uploaded Documents** resets the index back to the built-in default.
+- If no files are uploaded, the agent uses the bundled `data/policy.pdf` as the default knowledge base.
+
+## Live Evaluation Metrics
+
+After every response, three metrics are computed **locally — no extra LLM/API calls** — and shown in the UI. This keeps hallucination/quality monitoring free and fast, even on CPU-only HuggingFace Spaces.
+
+| Metric | Always shown? | How it works | What it catches |
+|---|---|---|---|
+| **Faithfulness** | Yes | NLI entailment (`cross-encoder/nli-deberta-v3-small`): each answer sentence is checked for *entailment* against the best-matching source passage it actually used (documents **or** web results). | Hallucinations and contradictions — not just topic drift. A claim that contradicts the source scores near 0. |
+| **Answer Relevance** | Yes | Cosine similarity between the question and the answer (`all-MiniLM-L6-v2`). Needs no reference. | Off-topic or evasive answers. |
+| **Accuracy** | Only with a reference | ROUGE-L F1 between the answer and a user-supplied reference answer. | Drift from a known-correct answer. |
+
+> **Why NLI instead of plain similarity?** Cosine similarity measures *topical* overlap, so "the treaty can be terminated" and "the treaty cannot be terminated" score nearly identically despite opposite meaning. The NLI model checks logical *entailment*, so it correctly flags contradictions as unfaithful.
+
+The offline `tests/evaluate.py` pipeline additionally uses an LLM-as-a-Judge for a second opinion against a golden dataset (see [Running Evaluations](#running-evaluations)).
+
 ## Demo & Outputs
 
 1. Interactive API (Swagger UI)
@@ -58,7 +94,13 @@ A generated CSV report scoring the agent's performance against ground truth data
 - src/rag_engine.py: Handles PDF ingestion and Vector Database (FAISS).
 - src/agent.py: Defines the Agent, Tools, and LangChain logic.
 - src/main.py: The FastAPI server entry point.
-- data/: Place your PDF documents here.
+- src/file_processor.py: Indexes user-uploaded files (PDF/DOCX/TXT/MD/CSV) at runtime.
+- src/embeddings.py: Shared, single-load embedding model reused by RAG and the evaluator.
+- src/evaluator.py: Local evaluation metrics (NLI faithfulness, relevance, accuracy).
+- src/prefetch_models.py: Downloads models at image-build time for fast cold starts.
+- app.py: The Gradio user interface (chat, file upload, live metrics).
+- start.sh: Launches the FastAPI backend and Gradio UI together (used by Docker).
+- data/: Place your default PDF documents here. (used when user didn't upload any files)
 
 ### Prerequisites
 
@@ -73,8 +115,10 @@ A generated CSV report scoring the agent's performance against ground truth data
 
 2. Configure Environment
 
-    Create a .env file in the root directory:
-    
+    The app uses **BYOK** — you enter your Gemini key directly in the UI, so no `.env` is needed to chat.
+
+    A `.env` file is only required to run the **offline evaluation** suite (`tests/evaluate.py`):
+
     ```GOOGLE_API_KEY=your_actual_api_key_here```
 
 3. Add Data
@@ -108,6 +152,40 @@ A generated CSV report scoring the agent's performance against ground truth data
     
     
     This isolates the application and ensures it runs consistently on any machine.
+
+6. Option C: Run the full app (UI + API together)
+
+    To run the Gradio UI and FastAPI backend together exactly as they run in the container:
+
+    ```bash start.sh```
+
+    Then open the UI at http://localhost:7860 (the API stays internal on port 8000).
+    To run them separately during development, use two terminals: `python -m src.main` and `python app.py`.
+
+## Deploying on HuggingFace Spaces
+
+This repo is configured as a **Docker** Space (see the YAML frontmatter at the top of this file).
+
+1. Create a new Space → choose **Docker** as the SDK.
+2. Push this repository to the Space.
+3. HuggingFace builds the image and serves the Gradio UI at the Space URL.
+
+No API-key secret is needed: the app uses **Bring Your Own Key (BYOK)** — each visitor enters their own Google Gemini key in the UI (see below).
+
+The container runs the FastAPI backend (internal, port 8000) and the Gradio UI (public, port 7860) together via `start.sh`. The embedding and NLI models are baked into the image at build time, so cold starts are fast and require no network access for models.
+
+## API Key Strategy for Public Deployment
+
+The Gemini free tier allows roughly **1,500 requests/day**, and each user question costs **2 calls** (one to route, one to answer) — about **750 questions/day total, shared across everyone**. If you publish a Space using your personal key, public traffic will exhaust it quickly and run on *your* quota.
+
+**This app uses Bring Your Own Key (BYOK).** Each visitor enters their own Google Gemini API key in the UI:
+
+- The key is sent only with that visitor's requests and is **never stored** on the server.
+- A new free key takes seconds to create at [Google AI Studio](https://aistudio.google.com/apikey).
+- The public Space therefore costs **you nothing** and can never exhaust your personal quota.
+- A question cannot be submitted until a key is provided; an invalid key returns a clear error.
+
+This is the standard pattern for public LLM demos. (Alternatives, if you ever want them: keep your own key as a Space secret with rate limiting, make the Space private, or upgrade to a paid Gemini plan.)
 
 ## Running Evaluations
 

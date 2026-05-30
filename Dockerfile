@@ -1,23 +1,29 @@
-# Use an official Python runtime as a parent image
+# Docker image for HuggingFace Spaces (SDK: docker, app_port: 7860)
 FROM python:3.10-slim
 
-# Set the working directory in the container
+# HF Spaces run containers as a non-root user; create one with a writable home
+RUN useradd -m -u 1000 user
+USER user
+
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH \
+    HF_HOME=/home/user/.cache/huggingface \
+    PYTHONUNBUFFERED=1 \
+    TOKENIZERS_PARALLELISM=false
+
 WORKDIR /app
 
-# Copy the requirements file into the container
-COPY requirements.txt .
+# Install Python dependencies
+COPY --chown=user:user requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy the application code
+COPY --chown=user:user . .
 
-# Copy the current directory contents into the container at /app
-COPY . .
+# Bake the embedding + NLI models into the image (fast, offline cold starts)
+RUN python -m src.prefetch_models
 
-# Expose the port FastAPI runs on
-EXPOSE 8000
+# Gradio UI (public) runs on 7860; FastAPI backend runs internally on 8000
+EXPOSE 7860
 
-# Define environment variable for unbuffered logs 
-ENV PYTHONUNBUFFERED=1
-
-# Run the application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["bash", "start.sh"]
