@@ -21,21 +21,26 @@ from rouge_score import rouge_scorer
 
 logger = logging.getLogger(__name__)
 
-_NLI_MODEL_NAME = "cross-encoder/nli-deberta-v3-small"
-# Label index for "entailment" in this model's output (0=contradiction, 1=entailment, 2=neutral)
-_ENTAILMENT_IDX = 1
+# FEVER/ANLI-trained NLI model — reliable for fact verification (handles
+# subset/superset and compound claims, which the smaller NLI models miss).
+_NLI_MODEL_NAME = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
 
 _nli_model = None
+_entail_idx = None
 _rouge = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
 
 
 # --- helpers ---------------------------------------------------------------
 
 def _nli():
-    global _nli_model
+    """Lazily load the NLI cross-encoder and resolve its 'entailment' label index
+    (label order varies between models, so we read it from the config)."""
+    global _nli_model, _entail_idx
     if _nli_model is None:
         from sentence_transformers import CrossEncoder
         _nli_model = CrossEncoder(_NLI_MODEL_NAME)
+        id2label = _nli_model.model.config.id2label
+        _entail_idx = next(i for i, lbl in id2label.items() if "entail" in lbl.lower())
     return _nli_model
 
 
@@ -62,38 +67,65 @@ def _split_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if len(p.strip()) > 15]
 
 
-def _split_passages(context: str) -> list[str]:
-    # retrieve() joins passages with blank lines
-    parts = [p.strip() for p in context.split("\n\n") if p.strip()]
-    return parts or [context.strip()]
+def _split_evidence(context: str) -> list[str]:
+    """Break the retrieved context into individual evidence sentences.
+
+    Source markers like "[File: x]" / "[Source: Page 3]" are stripped, then the
+    text is split on sentence boundaries and newlines. NLI is far more reliable
+    with single-sentence premises than with whole multi-sentence chunks."""
+    cleaned = re.sub(r"\[(?:File|Source)[^\]]*\]", " ", context)
+    parts = re.split(r"(?<=[.!?])\s+|\n+", cleaned.strip())
+    return [p.strip() for p in parts if len(p.strip()) > 15]
 
 
 # --- metrics ---------------------------------------------------------------
 
-def faithfulness_score(answer: str, source_context: str) -> float:
-    """Mean NLI entailment of answer claims given the source they were drawn from.
+_TOP_EVIDENCE = 4   # source sentences considered per claim
 
-    For each answer sentence we pick the most similar source passage (so the NLI
-    input stays short and on-point), then ask whether that passage entails the
-    sentence. Returns the mean entailment probability across sentences (0–1)."""
+
+def faithfulness_score(answer: str, source_context: str) -> float:
+    """RAGAS-style faithfulness: is each claim in the answer supported by the source?
+
+    For every answer sentence (claim) we take its most similar source sentences and
+    test entailment against each one *and* their concatenation, keeping the best
+    (max). Single sentences support simple/verbatim claims; the concatenation
+    supports compound claims that combine facts from several source sentences. The
+    score is the mean over claims (0-1) — robust to irrelevant passages (e.g. extra
+    web results), while contradicted or unsupported claims correctly fall toward 0."""
     if not answer.strip() or not source_context.strip():
         return 0.0
 
-    sentences = _split_sentences(answer) or [answer.strip()]
-    passages = _split_passages(source_context)
+    claims = _split_sentences(answer) or [answer.strip()]
+    evidence = _split_evidence(source_context)
+    if not evidence:
+        return 0.0
 
     try:
         from sentence_transformers import util
         from src.embeddings import get_sentence_transformer
         model = get_sentence_transformer()
-        pas_emb = model.encode(passages, convert_to_tensor=True)
-        sen_emb = model.encode(sentences, convert_to_tensor=True)
-        best_idx = util.cos_sim(sen_emb, pas_emb).argmax(dim=1).tolist()
-        pairs = [(passages[best_idx[i]], sentences[i]) for i in range(len(sentences))]
+        ev_emb = model.encode(evidence, convert_to_tensor=True)
+        cl_emb = model.encode(claims, convert_to_tensor=True)
+        sims = util.cos_sim(cl_emb, ev_emb)
+        topk = min(_TOP_EVIDENCE, len(evidence))
 
-        logits = _nli().predict(pairs)
-        entail = _softmax(np.asarray(logits))[:, _ENTAILMENT_IDX]
-        return round(float(entail.mean()), 3)
+        pairs, owners = [], []
+        for i in range(len(claims)):
+            idxs = sims[i].topk(topk).indices.tolist()
+            best = evidence[idxs[0]]                       # supports simple claims
+            concat = " ".join(evidence[j] for j in idxs)   # supports compound claims
+            premises = [best] if best == concat else [best, concat]
+            for premise in premises:
+                pairs.append((premise, claims[i]))
+                owners.append(i)
+
+        model_nli = _nli()
+        entail = _softmax(np.asarray(model_nli.predict(pairs)))[:, _entail_idx]
+
+        per_claim = [0.0] * len(claims)
+        for owner, e in zip(owners, entail):
+            per_claim[owner] = max(per_claim[owner], float(e))
+        return round(float(np.mean(per_claim)), 3)
     except Exception as e:
         logger.warning(f"NLI faithfulness unavailable ({e}); falling back to cosine.")
         return _cosine(answer, source_context)

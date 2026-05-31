@@ -117,6 +117,17 @@ async def chat(request: QueryRequest):
             result = agent.invoke({"messages": messages})
             answer = extract_content(result["messages"][-1])
 
+            # Some models occasionally emit an empty final turn after a tool call;
+            # retry before giving up so the user never sees a blank reply.
+            if not answer.strip():
+                logger.warning("Empty answer from model; retrying.")
+                if attempt < 2:
+                    continue
+                return QueryResponse(
+                    response="I couldn't generate a response for that. Please rephrase and try again.",
+                    source="unknown",
+                )
+
             source, tool_output = parse_tool_results(result["messages"])
             citations = extract_citations(tool_output)
 

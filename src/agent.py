@@ -20,7 +20,9 @@ except Exception as e:
 
 _search_tool = DuckDuckGoSearchRun()
 
-MODEL_NAME = "gemini-2.0-flash"
+# Default to a free-tier model that reliably produces a final answer after tool
+# calls. Override with the GEMINI_MODEL env var if your key supports another model.
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 SYSTEM_PROMPT = (
     "You are a precise research assistant with two tools:\n"

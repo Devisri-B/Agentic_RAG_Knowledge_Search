@@ -136,7 +136,7 @@ def run_evaluation(test_cases: list = None):
         print("Set GOOGLE_API_KEY in your .env to run the offline evaluation.")
         return
 
-    judge = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0, google_api_key=api_key)
+    judge = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", temperature=0, google_api_key=api_key)
 
     try:
         agent = get_agent_executor(api_key)

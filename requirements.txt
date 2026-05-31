@@ -10,6 +10,7 @@ langgraph>=0.2.53
 langchain-huggingface>=0.1.2
 sentence-transformers>=3.2.0
 sentencepiece>=0.2.0
+protobuf>=4.25.0
 faiss-cpu>=1.7.4
 pypdf>=5.1.0
 docx2txt>=0.8
