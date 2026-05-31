@@ -62,9 +62,28 @@ def _cosine(text_a: str, text_b: str) -> float:
     )), 3)
 
 
+def _is_claim(text: str) -> bool:
+    """Keep verifiable factual statements; drop framing and meta lines."""
+    if len(text) <= 15:
+        return False
+    if text.endswith(":"):                                  # lead-in to a list
+        return False
+    if re.match(r"^\(?\s*sources?\s*:", text, re.IGNORECASE):  # "(Source: file.pdf)"
+        return False
+    return True
+
+
 def _split_sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[.!?])\s+", text.strip())
-    return [p.strip() for p in parts if len(p.strip()) > 15]
+    # Split on sentence punctuation and newlines so bulleted/list answers
+    # become individual claims; strip leading bullet markers, then drop
+    # framing/meta lines that aren't verifiable factual statements.
+    parts = re.split(r"(?<=[.!?])\s+|\n+", text.strip())
+    cleaned = []
+    for p in parts:
+        p = p.lstrip("*-•· \t")
+        p = re.sub(r"[*_`]+", "", p).strip()   # strip markdown emphasis (**bold**, *italic*, `code`)
+        cleaned.append(p)
+    return [p for p in cleaned if _is_claim(p)]
 
 
 def _split_evidence(context: str) -> list[str]:
@@ -81,6 +100,16 @@ def _split_evidence(context: str) -> list[str]:
 # --- metrics ---------------------------------------------------------------
 
 _TOP_EVIDENCE = 4   # source sentences considered per claim
+
+# Leading proper-noun subject of 2-4 capitalized words, e.g. "Devi Sri Bandaru ".
+_SUBJECT_RE = re.compile(r"^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}\s+")
+
+
+def _strip_subject(claim: str) -> str:
+    """Drop a leading proper-noun subject so a subjectless source sentence can
+    still entail the fact. Used only as an extra variant (we keep the max), so a
+    wrong strip never lowers the score."""
+    return _SUBJECT_RE.sub("", claim)
 
 
 def faithfulness_score(answer: str, source_context: str) -> float:
@@ -115,9 +144,18 @@ def faithfulness_score(answer: str, source_context: str) -> float:
             best = evidence[idxs[0]]                       # supports simple claims
             concat = " ".join(evidence[j] for j in idxs)   # supports compound claims
             premises = [best] if best == concat else [best, concat]
+            # Document bullets are often subjectless ("Architected a RAG pipeline"),
+            # while answers prepend the person's name ("Devi Sri Bandaru architected
+            # ..."), which NLI reads as unsupported. Also test a subject-stripped
+            # variant and keep the best.
+            variants = [claims[i]]
+            stripped = _strip_subject(claims[i])
+            if stripped != claims[i] and len(stripped) > 10:
+                variants.append(stripped)
             for premise in premises:
-                pairs.append((premise, claims[i]))
-                owners.append(i)
+                for variant in variants:
+                    pairs.append((premise, variant))
+                    owners.append(i)
 
         model_nli = _nli()
         entail = _softmax(np.asarray(model_nli.predict(pairs)))[:, _entail_idx]
