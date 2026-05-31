@@ -35,9 +35,14 @@ def upload_files(files) -> str:
             path = f if isinstance(f, str) else f.name
             with open(path, "rb") as fp:
                 multipart.append(("files", (os.path.basename(path), fp.read(), "application/octet-stream")))
-        resp = requests.post(UPLOAD_ENDPOINT, files=multipart, timeout=120)
+        # Large PDFs produce thousands of chunks; embedding them on CPU can take
+        # a few minutes, so allow a generous timeout.
+        resp = requests.post(UPLOAD_ENDPOINT, files=multipart, timeout=900)
         resp.raise_for_status()
         return resp.json().get("status", "Files processed.")
+    except requests.exceptions.ReadTimeout:
+        return ("Still indexing — this file is large and CPU embedding is slow. "
+                "Wait a moment and try your question; it may already be indexed.")
     except requests.exceptions.RequestException as e:
         return f"Upload failed: {e}"
 
@@ -191,7 +196,8 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     with gr.Group():
         gr.Markdown(
             f"### Upload Documents\n"
-            f"Supported: **{', '.join(SUPPORTED_TYPES)}** — multiple files allowed, new uploads add to the index."
+            f"Supported: **{', '.join(SUPPORTED_TYPES)}** — multiple files allowed, new uploads add to the index.  \n"
+            "_Large PDFs (100s of pages) can take a few minutes to index on the free CPU — please be patient._"
         )
         file_input = gr.File(label="Select Files", file_count="multiple", file_types=SUPPORTED_TYPES)
         with gr.Row():
