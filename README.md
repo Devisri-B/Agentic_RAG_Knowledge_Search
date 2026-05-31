@@ -1,3 +1,13 @@
+---
+title: Agentic RAG Knowledge Search
+emoji: 🔍
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Agentic RAG Knowledge Search
 
 An agentic RAG assistant that decides **where** to find an answer — your uploaded documents or the live web — then **scores its own answer** for hallucinations, all running on free/CPU infrastructure.
