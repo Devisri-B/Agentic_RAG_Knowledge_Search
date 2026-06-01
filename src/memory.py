@@ -1,19 +1,5 @@
-"""
-Conversation memory with rolling summarization.
-
-Long chats are expensive: sending the whole history to the LLM on every turn
-grows token cost without bound and eventually overflows the context window.
-
-Strategy (sliding window + summary):
-  - Keep the most recent `keep_recent` turns verbatim.
-  - When the history grows past `max_turns`, fold the *older* turns into a running
-    natural-language summary (one cheap LLM call) and drop them from the window.
-  - Each request then sends: [summary] + [recent turns] + [new question] — bounded
-    in size no matter how long the conversation runs.
-
-The summarizer is injected (a callable str -> str), so this class is pure and
-unit-testable without any API calls.
-"""
+"""Per-session conversation memory. Recent turns are kept verbatim; older turns are
+folded into a running summary so long chats stay within the model's context window."""
 
 from dataclasses import dataclass, field
 from typing import Callable

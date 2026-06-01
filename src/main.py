@@ -117,8 +117,7 @@ async def chat(request: QueryRequest):
             result = agent.invoke({"messages": messages})
             answer = extract_content(result["messages"][-1])
 
-            # Some models occasionally emit an empty final turn after a tool call;
-            # retry before giving up so the user never sees a blank reply.
+            # Some models occasionally return an empty turn after a tool call; retry.
             if not answer.strip():
                 logger.warning("Empty answer from model; retrying.")
                 if attempt < 2:
@@ -135,7 +134,6 @@ async def chat(request: QueryRequest):
             relevance = answer_relevance_score(request.query, answer)
             acc = accuracy_score(answer, request.reference) if request.reference else None
 
-            # Update conversation memory, summarizing older turns when it grows
             memory.add_turn(request.query, answer)
             try:
                 memory.summarize_if_needed(_summarizer(api_key))
@@ -163,7 +161,7 @@ async def chat(request: QueryRequest):
                 raise HTTPException(status_code=500, detail=error_str)
             delay = retry_delay(error_str)
             if delay and delay <= 120 and attempt < 2:
-                logger.warning(f"Rate limited — retrying in {delay:.0f}s...")
+                logger.warning(f"Rate limited, retrying in {delay:.0f}s...")
                 time.sleep(delay + 1)
                 continue
             raise HTTPException(

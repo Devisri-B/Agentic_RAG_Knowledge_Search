@@ -1,9 +1,6 @@
-"""
-Evaluation pipeline — two metrics per question:
-  1. Faithfulness  : is the answer grounded in the retrieved context? (hallucination check)
-  2. Accuracy      : does the answer correctly match the ground truth?
-Run from the project root:  python -m tests.evaluate
-"""
+"""Offline LLM-as-a-judge evaluation. Grades the agent on two metrics per question:
+faithfulness (grounded in the retrieved context?) and accuracy (matches ground truth?).
+Run from the project root: python -m tests.evaluate"""
 
 import sys
 import os
@@ -21,10 +18,6 @@ except ImportError:
     print("Run this from the project root: python -m tests.evaluate")
     sys.exit(1)
 
-
-# ---------------------------------------------------------------------------
-# Judge prompts
-# ---------------------------------------------------------------------------
 
 FAITHFULNESS_PROMPT = """\
 You are evaluating whether an AI answer is grounded in the provided source context.
@@ -65,10 +58,6 @@ Score: [1-10]
 Reason: [one sentence]"""
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def extract_content(message) -> str:
     content = message.content
     if isinstance(content, list):
@@ -94,13 +83,8 @@ def get_context(question: str) -> str:
     return _fallback_kb.retrieve(question)
 
 
-# ---------------------------------------------------------------------------
-# Test cases
-# ---------------------------------------------------------------------------
-# Add your own Q&A pairs here. For web-search questions, leave ground_truth
-# as None — only faithfulness will be skipped (no ground truth to compare).
-# ---------------------------------------------------------------------------
-
+# Add your own Q&A pairs here. Leave ground_truth as None for web questions
+# (accuracy is then skipped, since there is nothing to compare against).
 TEST_CASES = [
     {
         "question": "What are the reporting requirements for State Parties?",
@@ -123,13 +107,9 @@ TEST_CASES = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
 def run_evaluation(test_cases: list = None):
     cases = test_cases or TEST_CASES
-    print(f"Starting evaluation — {len(cases)} test case(s)\n")
+    print(f"Starting evaluation ({len(cases)} test case(s))\n")
 
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
@@ -153,7 +133,6 @@ def run_evaluation(test_cases: list = None):
 
         print(f"[{i}/{len(cases)}] {question}")
 
-        # 1. Get agent answer
         try:
             result = agent.invoke({"messages": [("user", question)]})
             answer = extract_content(result["messages"][-1])
@@ -167,7 +146,7 @@ def run_evaluation(test_cases: list = None):
 
         print(f"  Answer: {answer[:120]}...")
 
-        # 2. Faithfulness check (hallucination detection) — RAG questions only
+        # Faithfulness only applies to document-grounded answers
         faithfulness_score, faithfulness_reason = "-", "N/A (web search question)"
         if source == "rag":
             try:
@@ -183,7 +162,7 @@ def run_evaluation(test_cases: list = None):
                 faithfulness_reason = str(e)
                 print(f"  Faithfulness check failed: {e}")
 
-        # 3. Accuracy check — only if ground truth is provided
+        # Accuracy only when a ground truth is provided
         accuracy_score, accuracy_reason = "-", "N/A (no ground truth)"
         if ground_truth:
             try:

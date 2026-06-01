@@ -20,8 +20,7 @@ except Exception as e:
 
 _search_tool = DuckDuckGoSearchRun()
 
-# Default to a free-tier model that reliably produces a final answer after tool
-# calls. Override with the GEMINI_MODEL env var if your key supports another model.
+# gemini-2.5-flash reliably answers after tool calls; override per key via env.
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 SYSTEM_PROMPT = (
@@ -32,7 +31,7 @@ SYSTEM_PROMPT = (
     "knowledge that is unlikely to be in the documents.\n\n"
     "Guidelines:\n"
     "1. Choose the tool that best fits the question; use both if needed.\n"
-    "2. Ground your answer in the retrieved content — do not invent facts. If the documents "
+    "2. Ground your answer in the retrieved content and do not invent facts. If the documents "
     "do not contain the answer, say so and try the web.\n"
     "3. Use the conversation summary and recent turns to resolve follow-up questions "
     "(e.g. pronouns like 'it' or 'that').\n"
@@ -62,7 +61,7 @@ def search_web(query: str) -> str:
 
 @lru_cache(maxsize=32)
 def get_llm(api_key: str) -> ChatGoogleGenerativeAI:
-    """Cached Gemini client for a given key — reused by the agent and the summarizer."""
+    """Cached Gemini client per key, reused by the agent and the summarizer."""
     if not api_key or not api_key.strip():
         raise ValueError("A Google Gemini API key is required.")
     return ChatGoogleGenerativeAI(
@@ -74,11 +73,8 @@ def get_llm(api_key: str) -> ChatGoogleGenerativeAI:
 
 @lru_cache(maxsize=32)
 def get_agent_executor(api_key: str):
-    """Build (and cache) a LangGraph ReAct agent for the given Gemini API key.
-
-    Each visitor supplies their own key (BYOK). The shared tools, embeddings, and
-    RAG index are module-level and reused; only the LLM is per-key. Cached by key
-    so repeat requests from the same user don't rebuild the graph."""
+    """ReAct agent for a given key (BYOK). Tools and the index are shared; only the
+    LLM is per-key, and the graph is cached so repeat calls don't rebuild it."""
     return create_react_agent(
         get_llm(api_key),
         [lookup_documents, search_web],

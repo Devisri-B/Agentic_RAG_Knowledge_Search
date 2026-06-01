@@ -1,8 +1,5 @@
-"""
-Unit tests for the lightweight evaluator pieces (ROUGE accuracy + text helpers).
-The embedding/NLI metrics are intentionally not exercised here so CI stays fast
-and offline — they require model downloads and are validated manually.
-"""
+"""Unit tests for the lightweight evaluator pieces (ROUGE accuracy and text helpers).
+The embedding/NLI metrics need model downloads, so they are validated manually, not in CI."""
 
 import numpy as np
 from src.evaluator import accuracy_score, _split_sentences, _softmax

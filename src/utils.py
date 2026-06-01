@@ -33,7 +33,7 @@ def parse_tool_results(messages: list) -> tuple[str, str]:
     """Return (source_type, combined_tool_output) from the agent message chain.
 
     source_type is 'rag', 'web', 'rag+web', or 'unknown'. The combined output is
-    the actual text the tools returned — what faithfulness is measured against.
+    the actual text the tools returned, which faithfulness is measured against.
     """
     rag_parts, web_parts = [], []
     for msg in messages:

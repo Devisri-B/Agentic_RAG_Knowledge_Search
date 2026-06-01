@@ -35,14 +35,13 @@ def upload_files(files) -> str:
             path = f if isinstance(f, str) else f.name
             with open(path, "rb") as fp:
                 multipart.append(("files", (os.path.basename(path), fp.read(), "application/octet-stream")))
-        # Large PDFs produce thousands of chunks; embedding them on CPU can take
-        # a few minutes, so allow a generous timeout.
+        # Large PDFs can take minutes to embed on CPU, so allow a generous timeout.
         resp = requests.post(UPLOAD_ENDPOINT, files=multipart, timeout=900)
         resp.raise_for_status()
         return resp.json().get("status", "Files processed.")
     except requests.exceptions.ReadTimeout:
-        return ("Still indexing — this file is large and CPU embedding is slow. "
-                "Wait a moment and try your question; it may already be indexed.")
+        return ("Still indexing. This file is large and CPU embedding is slow; "
+                "wait a moment and try your question, it may already be indexed.")
     except requests.exceptions.RequestException as e:
         return f"Upload failed: {e}"
 
@@ -71,7 +70,7 @@ def _faith_hint(score: float, source: str) -> str:
         return f"Answer is well-grounded in the {what}"
     if score >= 0.50:
         return f"Answer is mostly grounded in the {what}, minor unsupported details possible"
-    return f"Low grounding — answer may contain content not present in the {what}"
+    return f"Low grounding: answer may contain content not present in the {what}"
 
 
 def _relevance_hint(score: float) -> str:
@@ -86,7 +85,7 @@ def _accuracy_hint(score: float) -> str:
     if score >= 0.75:
         return "Strong match with your reference answer"
     if score >= 0.40:
-        return "Partial match — some key points differ from your reference"
+        return "Partial match: some key points differ from your reference"
     return "Low overlap with your reference answer"
 
 
@@ -98,14 +97,14 @@ def _format_metrics(source: str, faithfulness, answer_relevance, accuracy) -> st
     lines = [f"**Answer source: {src_label}**", "---"]
 
     if faithfulness is not None:
-        faith_label = "Faithfulness — grounded in documents" if source != "web" else "Faithfulness — grounded in web results"
+        faith_label = "Faithfulness (grounded in documents)" if source != "web" else "Faithfulness (grounded in web results)"
         lines.append(_fmt(faith_label, faithfulness, _faith_hint(faithfulness, source)))
 
     if answer_relevance is not None:
-        lines.append(_fmt("Answer Relevance — addresses the question", answer_relevance, _relevance_hint(answer_relevance)))
+        lines.append(_fmt("Answer Relevance (addresses the question)", answer_relevance, _relevance_hint(answer_relevance)))
 
     if accuracy is not None:
-        lines.append(_fmt("Accuracy — matches your reference", accuracy, _accuracy_hint(accuracy)))
+        lines.append(_fmt("Accuracy (matches your reference)", accuracy, _accuracy_hint(accuracy)))
     else:
         lines.append("_Accuracy: provide a reference answer above to see this score._")
 
@@ -150,7 +149,7 @@ def process_query(message: str, api_key: str, reference: str, session_id: str, c
             data.get("answer_relevance"),
             data.get("accuracy"),
         )
-        return chat_history, f"Done — answered via {src_label}", metrics_md
+        return chat_history, f"Done. Answered via {src_label}", metrics_md
 
     except requests.exceptions.RequestException as e:
         error = f"Request failed: {e}"
@@ -169,8 +168,7 @@ def clear_chat(session_id: str) -> tuple[list, str, str]:
 
 
 with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
-    # Per-browser-session id for server-side conversation memory
-    session_id = gr.State()
+    session_id = gr.State()   # per-browser id for server-side memory
 
     gr.Markdown("# Agentic RAG Knowledge Search")
     gr.Markdown(
@@ -183,7 +181,7 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     with gr.Group():
         gr.Markdown(
             "### Your Gemini API Key (required)\n"
-            "This app uses **your own** Google Gemini key — it is sent only with your requests and never stored. "
+            "This app uses **your own** Google Gemini key; it is sent only with your requests and never stored. "
             "Get a free key at [Google AI Studio](https://aistudio.google.com/apikey)."
         )
         api_key_input = gr.Textbox(
@@ -196,8 +194,8 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     with gr.Group():
         gr.Markdown(
             f"### Upload Documents\n"
-            f"Supported: **{', '.join(SUPPORTED_TYPES)}** — multiple files allowed, new uploads add to the index.  \n"
-            "_Large PDFs (100s of pages) can take a few minutes to index on the free CPU — please be patient._"
+            f"Supported: **{', '.join(SUPPORTED_TYPES)}**. Multiple files allowed; new uploads add to the index.  \n"
+            "_Large PDFs (100s of pages) can take a few minutes to index on the free CPU, so please be patient._"
         )
         file_input = gr.File(label="Select Files", file_count="multiple", file_types=SUPPORTED_TYPES)
         with gr.Row():
@@ -239,7 +237,7 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
     with gr.Group():
         gr.Markdown(
             "### Evaluation Metrics\n"
-            "Computed automatically after every response — **no extra API calls, no reference needed** for the first two.\n\n"
+            "Computed automatically after every response, with **no extra API calls and no reference needed** for the first two.\n\n"
             "| Metric | Always shown? | What it measures |\n"
             "|---|---|---|\n"
             "| **Faithfulness** | Yes | Is the answer grounded in the source it used? (docs or web results) |\n"
@@ -248,7 +246,6 @@ with gr.Blocks(title="Agentic RAG Knowledge Search") as demo:
         )
         metrics_output = gr.Markdown()
 
-    # Assign a fresh session id when the page loads
     demo.load(fn=lambda: str(uuid.uuid4()), inputs=[], outputs=[session_id])
 
     upload_btn.click(fn=upload_files, inputs=[file_input], outputs=[upload_status])
