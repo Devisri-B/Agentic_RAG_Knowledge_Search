@@ -200,5 +200,4 @@ src/
 app.py               Gradio UI
 start.sh             Run backend and UI together
 tests/               pytest suite + offline LLM-judge evaluation
-PROJECT_GUIDE.md     Full project guide and interview prep
 ```
