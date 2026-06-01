@@ -16,7 +16,7 @@ Built with **LangGraph · FastAPI · Gradio · FAISS · Google Gemini · Docker*
 
 ![CI](https://github.com/Devisri-B/Agentic_RAG_Knowledge_Search/actions/workflows/ci.yml/badge.svg)
 
-🔗 **Live Demo:** _Coming soon_ — paste your HuggingFace Space URL here once deployed (e.g. `https://huggingface.co/spaces/Devisri515/Agentic_RAG_Knowledge_Search`).
+🔗 **[Live Demo on HuggingFace Spaces »](https://huggingface.co/spaces/Devisri515/Agentic_RAG_Knowledge_Search)** — bring your own free [Gemini key](https://aistudio.google.com/apikey) and try it.
 
 ## What it does
 
@@ -35,6 +35,26 @@ Every answer is then graded in real time by **local evaluation models** (no extr
 - **Conversational memory** — follow-up questions resolve correctly; older turns are auto-summarized to bound token cost in long chats.
 - **Bring Your Own Key (BYOK)** — each user supplies their own Gemini key, so the public demo costs the owner nothing and never exhausts a shared quota.
 - **Production touches** — single-image Docker deployment, `pytest` suite, GitHub Actions CI with `ruff` linting, and a documented REST API.
+
+## Demo
+
+The screenshots below are from the [live HuggingFace Space](https://huggingface.co/spaces/Devisri515/Agentic_RAG_Knowledge_Search), using a résumé as the uploaded document.
+
+**1. Setup — your key + your documents.** Enter your own Gemini key (BYOK) and upload files; they're indexed on the spot (here, a résumé → 11 chunks).
+
+![Setup: API key and document upload](assets/panel.png)
+
+**2. Document Q&A (RAG).** Ask about the uploaded file — the agent retrieves the relevant chunks and answers with a source citation.
+
+![RAG answer with citation](assets/RAG_answer.png)
+
+**3. Conversational memory.** A follow-up like *"Which of those are from AWS?"* is resolved from the previous turn — note `Source: Unknown`, meaning the agent answered from memory without re-querying the document.
+
+![Conversation memory follow-up](assets/Memory.png)
+
+**4. No hallucination + live metrics.** Asked for a salary that isn't in the document, the agent says so instead of inventing one. The **Evaluation Metrics** panel scores every answer locally — faithfulness, answer relevance, and (with a reference) accuracy. *(Faithfulness is low here precisely because a refusal makes no fact that can be "grounded" in the source.)*
+
+![Honest refusal and evaluation metrics](assets/Hallucination.png)
 
 ## Architecture
 
